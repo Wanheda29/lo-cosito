@@ -1,3 +1,5 @@
+begin;
+
 create extension if not exists pgcrypto;
 create type public.subscription_status as enum ('active', 'grace', 'read_only', 'suspended');
 
@@ -101,7 +103,4 @@ $$;
 revoke all on function public.save_business_data(uuid, bigint, jsonb) from public;
 grant execute on function public.save_business_data(uuid, bigint, jsonb) to authenticated;
 
--- Alta inicial desde el panel:
--- insert into public.businesses (name) values ('Emprendimiento') returning id;
--- insert into public.memberships (business_id, user_id) values ('NEGOCIO_UUID', 'USUARIO_UUID');
--- Cambiar subscription_status desde Table Editor para controlar el acceso.
+commit;

@@ -24,7 +24,7 @@ let cloudWriteBlocked = false;
 let cloudSyncError = "";
 let cloudLoginError = "";
 let confirmedCloudState = structuredClone(emptyState);
-const cloudDraftKey = (businessId) => `lo-cosito-cloud-draft-${businessId}`;
+const cloudDraftKey = (businessId) => `lo-cosito-cloud-draft-${businessId}-${cloudSession.user.id}`;
 
 function readCloudDraft(businessId) {
   try {
