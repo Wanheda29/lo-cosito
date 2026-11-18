@@ -1,0 +1,193 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { correctPurchaseInventory, countedStock, customerKey, deleteProductionRecord, ingredientWithManualCost, marginPercent, monthlySummary, pagedOrders, productionCostBreakdown, productionPlan, productionWithHomeSupply, recipeCost, reverseProductionStock, saleCustomerName, saleFromOrder, toBaseQuantity, updateWeightedAverage } from "../domain.js";
+
+test("convierte kilogramos a gramos", () => assert.equal(toBaseQuantity(2.5, "kg", "g"), 2500));
+
+test("calcula el costo promedio ponderado", () => {
+  assert.deepEqual(updateWeightedAverage(2000, 0.1, 3000, 450), { stock: 5000, averageCost: 0.13 });
+});
+
+test("corrige o elimina una compra sin alterar el objeto original", () => {
+  const ingredients = [{ id: "h", stock: 2000, averageCost: 0.1 }];
+  const purchase = { ingredientId: "h", baseQuantity: 1000, totalCost: 100 };
+  const edited = correctPurchaseInventory(ingredients, purchase, { ingredientId: "h", baseQuantity: 1500, totalCost: 180 });
+  assert.equal(edited[0].stock, 2500);
+  assert.equal(edited[0].averageCost, 0.112);
+  const deleted = correctPurchaseInventory(ingredients, purchase);
+  assert.equal(deleted[0].stock, 1000);
+  assert.equal(deleted[0].averageCost, 0.1);
+  assert.equal(ingredients[0].stock, 2000);
+});
+
+test("impide eliminar una compra cuyo stock ya se consumió", () => {
+  assert.throws(() => correctPurchaseInventory([{ id: "h", stock: 200, averageCost: 0.1 }], { ingredientId: "h", baseQuantity: 1000, totalCost: 100 }), /ya se consumió/);
+});
+
+test("impide una corrección que dejaría negativo el valor del inventario", () => {
+  assert.throws(() => correctPurchaseInventory([{ id: "h", stock: 1000, averageCost: 0.05 }], { ingredientId: "h", baseQuantity: 500, totalCost: 100 }), /valor actual del stock/);
+});
+
+test("permite corregir el insumo de una compra cuando ambos stocks quedan válidos", () => {
+  const result = correctPurchaseInventory(
+    [{ id: "h", stock: 1000, averageCost: 0.1 }, { id: "a", stock: 0, averageCost: 0 }],
+    { ingredientId: "h", baseQuantity: 1000, totalCost: 100 },
+    { ingredientId: "a", baseQuantity: 500, totalCost: 50 },
+  );
+  assert.deepEqual(result.map((item) => item.stock), [0, 500]);
+  assert.equal(result[1].averageCost, 0.1);
+});
+
+test("calcula una receta con gastos opcionales", () => {
+  const ingredients = [{ id: "harina", averageCost: 0.1 }];
+  const product = { yieldQuantity: 2, recipe: [{ ingredientId: "harina", quantity: 500 }], optionalCosts: { labor: 100 } };
+  assert.deepEqual(recipeCost(product, ingredients), { ingredientCost: 50, optionalCost: 100, batchCost: 150, unitCost: 75 });
+});
+
+test("los gastos opcionales pueden omitirse", () => assert.equal(recipeCost({ yieldQuantity: 1, recipe: [] }, []).unitCost, 0));
+
+test("resume ventas usando el costo histórico", () => {
+  const summary = monthlySummary([{ date: "2026-09-18", quantity: 2, unitPrice: 100, unitCostSnapshot: 60 }], "2026-09");
+  assert.deepEqual(summary, { orders: 1, units: 2, revenue: 200, cost: 120, profit: 80 });
+  assert.equal(marginPercent(100, 60), 40);
+});
+
+test("convierte un pedido entregado en una venta con costo congelado", () => {
+  const ingredients = [{ id: "harina", averageCost: 0.1 }];
+  const product = { id: "torta", yieldQuantity: 1, recipe: [{ ingredientId: "harina", quantity: 500 }] };
+  const order = { id: "pedido-1", productId: "torta", quantity: 2, totalPrice: 1200, clientId: "cliente-1", customerName: "Lucía" };
+  assert.deepEqual(saleFromOrder(order, product, ingredients, "2026-09-18", "venta-1"), {
+    id: "venta-1", productId: "torta", quantity: 2, unitPrice: 600, unitCostSnapshot: 50, date: "2026-09-18", sourceOrderId: "pedido-1", clientId: "cliente-1", customerName: "Lucía",
+  });
+});
+
+test("recupera el cliente de ventas anteriores vinculadas a pedidos", () => {
+  const orders = [{ id: "pedido-viejo", customerName: "Ana" }];
+  assert.equal(saleCustomerName({ sourceOrderId: "pedido-viejo" }, orders), "Ana");
+  assert.equal(saleCustomerName({ customerName: "Lucía", sourceOrderId: "pedido-viejo" }, orders), "Lucía");
+  assert.equal(saleCustomerName({ productId: "torta" }, orders), "");
+});
+
+test("filtra pedidos por cliente y estado y muestra hasta ocho por página", () => {
+  const orders = Array.from({ length: 18 }, (_, index) => ({ id: String(index + 1), customerName: index % 2 ? "LUCÍA" : "Ana", status: index % 2 ? "listo" : "pendiente" }));
+  assert.equal(customerKey(" Lucía "), "lucía");
+  const first = pagedOrders(orders, { page: 1 });
+  assert.deepEqual(first.items.map((order) => order.id), ["18", "17", "16", "15", "14", "13", "12", "11"]);
+  assert.equal(first.pageCount, 3);
+  assert.deepEqual(pagedOrders(orders, { page: 2 }).items.map((order) => order.id), ["10", "9", "8", "7", "6", "5", "4", "3"]);
+  const filtered = pagedOrders(orders, { client: customerKey("Lucía"), status: "listo", page: 2 });
+  assert.equal(filtered.total, 9);
+  assert.deepEqual(filtered.items.map((order) => order.id), ["2"]);
+  orders[17].deletedAt = "2026-09-23";
+  assert.equal(pagedOrders(orders, { client: customerKey("Lucía"), status: "listo", page: 99 }).page, 1);
+});
+
+test("planifica una producción y detecta insumos insuficientes", () => {
+  const product = { yieldQuantity: 12, recipe: [{ ingredientId: "harina", quantity: 500 }], optionalCosts: { labor: 100 } };
+  const plan = productionPlan(product, [{ id: "harina", name: "Harina", baseUnit: "g", stock: 800, averageCost: 0.1 }], 2);
+  assert.equal(plan.producedQuantity, 24);
+  assert.equal(plan.totalCost, 300);
+  assert.equal(plan.unitCost, 12.5);
+  assert.equal(plan.canProduce, false);
+  assert.equal(plan.requirements[0].required, 1000);
+});
+
+test("desglosa costos históricos incluso si la receta actual cambia", () => {
+  const production = { totalCostSnapshot: 180, unitCostSnapshot: 30, requirementsSnapshot: [{ name: "Harina", required: 1000, unit: "g", cost: 80 }], optionalCostsSnapshot: [{ label: "Mano de obra", totalCost: 100 }] };
+  assert.deepEqual(productionCostBreakdown(production), {
+    ingredients: [{ name: "Harina", quantity: 1000, unit: "g", cost: 80 }],
+    ingredientCost: 80, optionalCost: 100, optionalLines: [{ label: "Mano de obra", totalCost: 100 }], totalCost: 180, unitCost: 30,
+  });
+  assert.equal(productionCostBreakdown({ ...production, optionalCostsSnapshot: undefined }).optionalLines, null);
+});
+
+test("eliminar producción activa revierte stock y eliminar una anulada no lo duplica", () => {
+  const ingredients = [{ id: "h", stock: 300, averageCost: 0.1 }];
+  const production = { id: "p", requirementsSnapshot: [{ ingredientId: "h", required: 200 }] };
+  const deleted = deleteProductionRecord(ingredients, [], production, "2026-09-23T12:00:00Z", "admin@example.com");
+  assert.equal(deleted.ingredients[0].stock, 500);
+  assert.equal(ingredients[0].stock, 300);
+  assert.equal(deleted.production.deletedBy, "admin@example.com");
+  const alreadyVoided = deleteProductionRecord(ingredients, [], { ...production, voidedAt: "2026-09-22T12:00:00Z" }, "2026-09-23T12:00:00Z");
+  assert.equal(alreadyVoided.ingredients[0].stock, 300);
+  assert.equal(alreadyVoided.production.voidedAt, "2026-09-22T12:00:00Z");
+});
+
+test("un recuento manual de stock conserva el costo al reducir y pondera al aumentar", () => {
+  const ingredient = { id: "harina", stock: 1000, averageCost: 0.1 };
+  assert.deepEqual(countedStock(ingredient, 700), { stock: 700, averageCost: 0.1, previousStock: 1000, delta: -300, addedValue: 0 });
+  assert.deepEqual(countedStock(ingredient, 1500, 100), { stock: 1500, averageCost: 0.13333333333333333, previousStock: 1000, delta: 500, addedValue: 100 });
+  assert.throws(() => countedStock(ingredient, -1), /no negativos/);
+});
+
+test("el aporte de casa cubre faltantes sin dejar stock negativo y ajusta el costo", () => {
+  const product = { yieldQuantity: 1, recipe: [{ ingredientId: "harina", quantity: 500 }] };
+  const ingredients = [{ id: "harina", name: "Harina", baseUnit: "g", stock: 200, averageCost: 0.1 }];
+  const result = productionWithHomeSupply(product, ingredients, 1, { harina: 60 });
+  assert.equal(result.adjustments[0].delta, 300);
+  assert.equal(result.adjustments[0].addedValue, 60);
+  assert.equal(result.plan.canProduce, true);
+  assert.equal(result.plan.totalCost, 80);
+  assert.equal(result.ingredients[0].stock, 500);
+  assert.equal(ingredients[0].stock, 200);
+  assert.throws(() => productionWithHomeSupply(product, ingredients, 1, { harina: -1 }), /no negativos/);
+});
+
+test("suma las líneas repetidas del mismo insumo antes de evaluar el stock", () => {
+  const product = { yieldQuantity: 1, recipe: [{ ingredientId: "h", quantity: 300 }, { ingredientId: "h", quantity: 300 }] };
+  const ingredients = [{ id: "h", name: "Harina", baseUnit: "g", stock: 500, averageCost: 0.1 }];
+  const plan = productionPlan(product, ingredients);
+  assert.equal(plan.canProduce, false);
+  assert.equal(plan.requirements[0].required, 600);
+  assert.equal(productionWithHomeSupply(product, ingredients).adjustments[0].delta, 100);
+});
+
+test("anular una producción revierte el consumo y el aporte de casa", () => {
+  const product = { yieldQuantity: 1, recipe: [{ ingredientId: "h", quantity: 500 }] };
+  const original = [{ id: "h", name: "Harina", baseUnit: "g", stock: 200, averageCost: 0.1 }];
+  const prepared = productionWithHomeSupply(product, original, 1, { h: 60 });
+  const consumed = prepared.ingredients.map((item) => ({ ...item, stock: item.stock - 500 }));
+  const restored = reverseProductionStock(consumed, prepared.plan.requirements, prepared.adjustments);
+  assert.equal(restored[0].stock, 200);
+  assert.ok(Math.abs(restored[0].averageCost - 0.1) < 1e-10);
+  assert.equal(consumed[0].stock, 0);
+});
+
+test("un aporte sin valor conocido permite producir pero se marca como costo parcial", () => {
+  const product = { yieldQuantity: 1, recipe: [{ ingredientId: "h", quantity: 100 }] };
+  const result = productionWithHomeSupply(product, [{ id: "h", name: "Harina", baseUnit: "g", stock: 0, averageCost: 0 }]);
+  assert.equal(result.plan.canProduce, true);
+  assert.equal(result.costUnestimated, true);
+  assert.equal(result.adjustments[0].delta, 100);
+});
+
+test("edita costos por kg, litro y unidad sin modificar stock ni el insumo original", () => {
+  for (const [baseUnit, costUnit, amount, expected] of [["g", "kg", 55, 0.055], ["ml", "l", 80, 0.08], ["unidad", "unidad", 12.5, 12.5], ["g", "g", 0.075, 0.075]]) {
+    const original = { id: "h", baseUnit, stock: 500, averageCost: 0.1 };
+    const updated = ingredientWithManualCost(original, amount, costUnit);
+    assert.equal(updated.averageCost, expected);
+    assert.equal(updated.stock, 500);
+    assert.equal(original.averageCost, 0.1);
+  }
+  assert.equal(ingredientWithManualCost({ baseUnit: "g", stock: 0 }, 0, "kg").averageCost, 0);
+});
+
+test("rechaza costos manuales inválidos y unidades incompatibles", () => {
+  const ingredient = { baseUnit: "g", stock: 100, averageCost: 0.1 };
+  for (const amount of [-1, NaN, Infinity, "", " ", null, undefined, "abc"]) {
+    assert.throws(() => ingredientWithManualCost(ingredient, amount, "kg"), /costo válido/);
+  }
+  assert.throws(() => ingredientWithManualCost(ingredient, 55, "l"), /no es compatible/);
+});
+
+test("el costo manual se usa en recetas y compras futuras y conserva los registros históricos", () => {
+  const original = { id: "h", baseUnit: "g", stock: 1000, averageCost: 0.1 };
+  const product = { yieldQuantity: 1, recipe: [{ ingredientId: "h", quantity: 500 }] };
+  const historicalSale = saleFromOrder({ quantity: 1, totalPrice: 100 }, { ...product, id: "p" }, [original], "2026-10-07", "s");
+  const historicalProduction = productionPlan(product, [original], 1);
+  const updated = ingredientWithManualCost(original, 200, "kg");
+  assert.equal(recipeCost(product, [updated]).unitCost, 100);
+  assert.equal(historicalSale.unitCostSnapshot, 50);
+  assert.equal(historicalProduction.totalCost, 50);
+  assert.deepEqual(updateWeightedAverage(updated.stock, updated.averageCost, 1000, 100), { stock: 2000, averageCost: 0.15 });
+});
