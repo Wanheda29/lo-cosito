@@ -203,8 +203,12 @@ function renderDashboard() {
   const recent = [...state.sales].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
   const upcoming = state.orders.filter((order) => !order.deletedAt && !["entregado", "cancelado"].includes(order.status)).sort((a, b) => a.deliveryDate.localeCompare(b.deliveryDate)).slice(0, 5);
   app.innerHTML = `
-    <section class="hero">
-      <div><p class="eyebrow">Tu negocio, con números claros</p><h2>Sabé cuánto cuesta antes de ponerle precio.</h2><p>Registrá compras, armá recetas y conservá el costo real de cada venta. Los gastos de gas, luz, reparto y trabajo siempre son opcionales.</p><div class="hero-actions"><button class="primary" data-go="pedidos">Nuevo pedido</button><button class="secondary" data-go="agenda">Ver agenda</button></div></div>
+    <section class="kitchen-banner" aria-labelledby="kitchen-title">
+      <div class="kitchen-banner-copy">
+        <h2 id="kitchen-title">Lo Cosito</h2>
+        <div class="kitchen-links"><a href="#pedidos">Ver pedidos</a><a href="#agenda">Ver agenda</a></div>
+      </div>
+      <div class="kitchen-banner-photo"><img src="assets/cocina-vegetal.jpg" alt="" fetchpriority="high"></div>
     </section>
     <div class="stats">
       <article class="stat"><small>Ventas del mes</small><strong>${money.format(summary.revenue)}</strong></article>
@@ -216,7 +220,6 @@ function renderDashboard() {
       <article class="card"><h3>Próximas entregas</h3>${upcoming.length ? `<div class="order-list compact">${upcoming.map((order) => `<div class="order-row"><div><strong>${h(order.customerName)}</strong><small>${h(productById(order.productId)?.name || "Producto eliminado")}</small></div><div><strong>${order.deliveryDate}</strong><span class="status status-${order.status}">${statusLabels[order.status]}</span></div></div>`).join("")}</div>` : empty("No hay pedidos pendientes.")}</article>
       <article class="card"><h3>Últimas ventas</h3>${recent.length ? `<div class="table-wrap"><table><tbody>${recent.map((sale) => `<tr><td>${h(productById(sale.productId)?.name || "Producto eliminado")}</td><td>${sale.date}</td><td>${money.format(sale.quantity * sale.unitPrice)}</td></tr>`).join("")}</tbody></table></div>` : empty("Todavía no registraste ventas.")}</article>
     </div>`;
-  app.querySelectorAll("[data-go]").forEach((button) => button.addEventListener("click", () => { location.hash = button.dataset.go; }));
 }
 
 function renderIngredients() {

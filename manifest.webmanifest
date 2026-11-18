@@ -3,7 +3,7 @@
   "short_name": "Lo Cosito",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#fffaf7",
-  "theme_color": "#8a3d55",
+  "background_color": "#f4f6ef",
+  "theme_color": "#243e30",
   "description": "Costos, recetas, pedidos y ventas de Lo Cosito."
 }
