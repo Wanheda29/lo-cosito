@@ -14,6 +14,10 @@ Abrí [http://localhost:4173](http://localhost:4173). Ejecutá `npm test` para c
 
 La aplicación usa el [proyecto Lo Cosito de Supabase](https://supabase.com/dashboard/project/kwnljzxsodsmnkgypzkp). Cada integrante ingresa con su correo y contraseña y el equipo comparte los datos del negocio. Desde **Datos y respaldos** se pueden exportar y restaurar respaldos JSON.
 
+## Demo pública
+
+La [demo de GitHub Pages](https://wanheda29.github.io/lo-cosito/) guarda los datos de prueba en el navegador y prescinde de las cuentas de Supabase. El flujo de GitHub Actions publica la demo con cada cambio en `main`.
+
 ## Habilitar el acceso del equipo en Supabase
 
 1. Creá una cuenta por integrante en **Authentication → Users**. Completá `team_emails` en una copia de `supabase/team.sql` con los correos de esas cuentas y ejecutala en **SQL Editor**. El script vincula las cuentas al mismo negocio y admite ejecuciones posteriores para sumar integrantes.
