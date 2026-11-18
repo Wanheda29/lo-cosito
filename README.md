@@ -14,9 +14,11 @@ Abrí [http://localhost:4173](http://localhost:4173). Ejecutá `npm test` para c
 
 La aplicación usa el [proyecto Lo Cosito de Supabase](https://supabase.com/dashboard/project/kwnljzxsodsmnkgypzkp). Cada integrante ingresa con su correo y contraseña y el equipo comparte los datos del negocio. Desde **Datos y respaldos** se pueden exportar y restaurar respaldos JSON.
 
-## Demo pública
+## Publicación en GitHub Pages
 
-La [demo de GitHub Pages](https://wanheda29.github.io/lo-cosito/) guarda los datos de prueba en el navegador y prescinde de las cuentas de Supabase. El flujo de GitHub Actions publica la demo con cada cambio en `main`.
+La [web de Lo Cosito](https://wanheda29.github.io/lo-cosito/) requiere una cuenta de Supabase vinculada al negocio. GitHub Pages sirve los archivos estáticos. El navegador se conecta directamente a Supabase por HTTPS para iniciar sesión y sincronizar los datos. GitHub Actions publica la web con cada cambio en `main`.
+
+Los registros que se hayan cargado en la antigua demo siguen en el navegador donde se ingresaron. La versión compartida usa los datos de Supabase.
 
 ## Habilitar el acceso del equipo en Supabase
 

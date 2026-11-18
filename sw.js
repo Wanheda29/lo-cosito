@@ -1,4 +1,4 @@
-const CACHE = "lo-cosito-v4";
+const CACHE = "lo-cosito-v5";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./domain.js", "./combos.js", "./storage.js", "./pdf-export.js", "./vendor/jspdf.umd.min.js", "./vendor/jspdf.plugin.autotable.min.js", "./cloud.js", "./cloud-config.js", "./manifest.webmanifest", "./assets/cocina-vegetal.jpg"];
 
 self.addEventListener("install", (event) => {

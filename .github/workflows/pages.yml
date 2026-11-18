@@ -1,4 +1,4 @@
-name: Publicar demo en GitHub Pages
+name: Publicar Lo Cosito en GitHub Pages
 
 on:
   push:
@@ -23,16 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-      - name: Preparar demo con almacenamiento local
+      - name: Preparar sitio con acceso por Supabase
         run: |
           mkdir -p dist
-          cp app.js cloud.js combos.js domain.js manifest.webmanifest pdf-export.js storage.js styles.css sw.js dist/
+          cp index.html app.js cloud-config.js cloud.js combos.js domain.js manifest.webmanifest pdf-export.js storage.js styles.css sw.js dist/
           cp -R assets vendor dist/
-          sed 's/Comida vegana y vegetariana/Demo pública · Usá datos ficticios/' index.html > dist/index.html
-          sed -i 's/"lo-cosito-v1"/"lo-cosito-demo-v1"/' dist/storage.js
-          cat > dist/cloud-config.js <<'EOF'
-          export const cloudConfig = { enabled: false, url: "", publishableKey: "" };
-          EOF
+          node --input-type=module -e 'import { isCloudConfigured } from "./dist/cloud.js"; if (!isCloudConfigured()) throw new Error("Supabase debe estar habilitado para publicar");'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

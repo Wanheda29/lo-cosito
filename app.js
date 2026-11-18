@@ -159,12 +159,13 @@ function confirmAction(title, message, actionLabel, onConfirm) {
 
 function render() {
   const page = location.hash.slice(1) || "inicio";
-  document.querySelector("#page-title").textContent = titles[page] ?? titles.inicio;
+  const accountRequired = isCloudConfigured() && !cloudAccount;
+  document.body.classList.toggle("account-required", accountRequired);
+  document.querySelector("#page-title").textContent = accountRequired && !cloudSession ? "Ingresar" : titles[page] ?? titles.inicio;
   document.querySelectorAll("nav a").forEach((link) => link.classList.toggle("active", link.dataset.page === page));
   setMenuOpen(false);
   if (cloudLoading) { renderCloudLoading(); return; }
-  if (isCloudConfigured() && !cloudSession && page !== "cuenta") { location.hash = "cuenta"; return; }
-  if (isCloudConfigured() && cloudSession && !cloudAccount && page !== "cuenta") { location.hash = "cuenta"; return; }
+  if (accountRequired && page !== "cuenta") { location.replace("#cuenta"); return; }
   if (cloudAccount?.status === "suspended" && page !== "cuenta") { renderSuspended(); return; }
   if (cloudWriteBlocked && page !== "cuenta" && page !== "datos") { renderSyncProblem(); return; }
   ({ inicio: renderDashboard, insumos: renderIngredients, compras: renderPurchases, productos: renderProducts, combos: renderCombos, produccion: renderProduction, clientes: renderClients, pedidos: renderOrders, agenda: renderAgenda, ventas: renderSales, informes: renderReports, datos: renderData, cuenta: renderAccount }[page] ?? renderDashboard)();
@@ -884,7 +885,7 @@ function renderAccount() {
     return;
   }
   if (!cloudSession) {
-    app.innerHTML = pageHeading("Ingresar", "Accedé a los datos de tu emprendimiento.") + `<article class="card login-card"><form id="login-form"><div class="field"><label>Correo electrónico</label><input name="email" type="email" autocomplete="email" required></div><div class="field"><label>Contraseña</label><input name="password" type="password" autocomplete="current-password" required></div><button class="primary">Ingresar</button><p id="login-error" class="form-error">${h(cloudLoginError)}</p></form></article>`;
+    app.innerHTML = `<article class="card login-card"><form id="login-form" method="post"><div class="field"><label for="login-email">Correo electrónico</label><input id="login-email" name="email" type="email" autocomplete="username" required></div><div class="field"><label for="login-password">Contraseña</label><input id="login-password" name="password" type="password" autocomplete="current-password" required></div><button class="primary">Ingresar</button><p id="login-error" class="form-error">${h(cloudLoginError)}</p></form></article>`;
     app.querySelector("#login-form").addEventListener("submit", handleLogin);
     return;
   }
@@ -1013,6 +1014,7 @@ async function discardCloudDraft() {
 
 async function initializeApp() {
   if (isCloudConfigured()) {
+    render();
     try {
       cloudSession = await getSession();
       if (cloudSession) await loadCloudAccountAndData();
