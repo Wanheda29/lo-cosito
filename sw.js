@@ -1,9 +1,10 @@
-const CACHE = "lo-cosito-v3";
+const CACHE = "lo-cosito-v4";
 const ASSETS = ["./", "./index.html", "./styles.css", "./app.js", "./domain.js", "./combos.js", "./storage.js", "./pdf-export.js", "./vendor/jspdf.umd.min.js", "./vendor/jspdf.plugin.autotable.min.js", "./cloud.js", "./cloud-config.js", "./manifest.webmanifest", "./assets/cocina-vegetal.jpg"];
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
-  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS)));
+  const requests = ASSETS.map((path) => new Request(path, { cache: "reload" }));
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(requests)));
 });
 self.addEventListener("activate", (event) => event.waitUntil(Promise.all([
   self.clients.claim(),
