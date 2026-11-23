@@ -1,4 +1,4 @@
-// Configuración pública del proyecto Supabase de Lo Cosito.
+// Configuración pública del proyecto Supabase de Lo Cositos.
 export const cloudConfig = {
   enabled: true,
   url: "https://kwnljzxsodsmnkgypzkp.supabase.co",

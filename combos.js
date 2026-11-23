@@ -2,7 +2,7 @@ import { productDefinition, profitOnCostPercent, recipeCost } from "./domain.js"
 
 export function renderCombos(context) {
   const { app, state, pageHeading, dialog, persist, toast, h, money, decimal, uid, deleteProduct } = context;
-  const products = state.products.filter((product) => !product.deletedAt && product.kind !== "combo");
+  const products = state.products.filter((product) => !product.deletedAt && product.kind !== "combo" && product.kind !== "recipe");
   const combos = state.products.filter((product) => !product.deletedAt && product.kind === "combo");
   const productById = (id) => state.products.find((product) => product.id === id);
   const percentage = (price, cost) => {
@@ -49,7 +49,7 @@ export function renderCombos(context) {
         const costs = recipeCost(draft, state.ingredients, state.products);
         const breakdown = draft.items.map((item) => {
           const product = productById(item.productId);
-          return `<li><span>${item.quantity} × ${h(product.name)}</span><strong>${money.format(recipeCost(product, state.ingredients).unitCost * item.quantity)}</strong></li>`;
+          return `<li><span>${item.quantity} × ${h(product.name)}</span><strong>${money.format(recipeCost(product, state.ingredients, state.products).unitCost * item.quantity)}</strong></li>`;
         }).join("");
         preview.innerHTML = `<ul class="combo-items">${breakdown}<li><span>Empaque adicional</span><strong>${money.format(draft.optionalCosts.packaging)}</strong></li></ul><div class="cost-preview"><span>Costo por combo</span><strong>${money.format(costs.unitCost)}</strong></div><p>Ganancia por combo: <strong>${money.format(draft.salePrice - costs.unitCost)}</strong> · Ganancia sobre costo: <strong>${percentage(draft.salePrice, costs.unitCost)}</strong></p>`;
       } catch (error) { preview.innerHTML = `<p class="warning">${h(error.message)}</p>`; }

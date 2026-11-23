@@ -1,9 +1,9 @@
 {
-  "name": "Lo Cosito",
-  "short_name": "Lo Cosito",
+  "name": "Lo Cositos",
+  "short_name": "Lo Cositos",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f4f6ef",
   "theme_color": "#243e30",
-  "description": "Costos, recetas, pedidos y ventas de Lo Cosito."
+  "description": "Costos, recetas, pedidos y ventas de Lo Cositos."
 }

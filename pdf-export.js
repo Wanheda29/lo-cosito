@@ -23,7 +23,7 @@ export function buildBusinessReport(candidate, options = {}) {
   const ingredient = (id) => byId(state.ingredients, id);
   const product = (id) => byId(state.products, id);
   const clientName = (item) => text(item.customerName || byId(state.clients, item.clientId)?.name);
-  const productName = (item) => text(item.productNameSnapshot || product(item.productId)?.name || "Producto no disponible");
+  const productName = (item) => text(item.productNameSnapshot || product(item.recipeId ?? item.productId)?.name || "Producto no disponible");
   const ingredientName = (item) => text(item.ingredientName || ingredient(item.ingredientId)?.name || "Insumo no disponible");
   const section = (title, columns, rows, note = "") => ({ title, columns, rows, note });
   const costOf = (item) => {
@@ -34,7 +34,8 @@ export function buildBusinessReport(candidate, options = {}) {
     }
     catch { return null; }
   };
-  const currentProducts = state.products.filter((item) => item.kind !== "combo");
+  const currentProducts = state.products.filter((item) => !["combo", "recipe"].includes(item.kind));
+  const recipes = state.products.filter((item) => item.kind === "recipe");
   const combos = state.products.filter((item) => item.kind === "combo");
   const sales = state.sales.filter((item) => !item.deletedAt && !item.voidedAt);
   const purchases = state.purchases.filter((item) => !item.deletedAt && !item.voidedAt);
@@ -48,7 +49,8 @@ export function buildBusinessReport(candidate, options = {}) {
   sections.push(section("Resumen del negocio", ["Concepto", "Valor"], [
     ["Clientes registrados", number(state.clients.length)],
     ["Insumos activos", number(state.ingredients.filter((item) => !item.deletedAt).length)],
-    ["Productos / recetas activos", number(currentProducts.filter((item) => !item.deletedAt).length)],
+    ["Productos activos", number(currentProducts.filter((item) => !item.deletedAt).length)],
+    ["Recetas activas", number(recipes.filter((item) => !item.deletedAt).length)],
     ["Combos activos", number(combos.filter((item) => !item.deletedAt).length)],
     ["Valor actual de las existencias", money(stockValue)],
     ["Compras vigentes acumuladas", money(summary.purchaseTotal)],
@@ -65,11 +67,11 @@ export function buildBusinessReport(candidate, options = {}) {
   const costHistory = state.ingredients.flatMap((item) => (item.costHistory || []).map((change) => [date(change.createdAt), text(item.name), `${money(change.previousCost, true)} / ${item.baseUnit}`, `${money(change.newCost, true)} / ${item.baseUnit}`, `${money(change.amount, true)} / ${text(change.costUnit)}`, text(change.actorEmail)]));
   sections.push(section("Historial de costos manuales", ["Fecha", "Insumo", "Costo anterior", "Costo nuevo", "Importe ingresado", "Registrado por"], costHistory, "Los costos anterior y nuevo se expresan en la unidad interna del insumo, indicada en cada celda. Cambiar la unidad de visualización no reescribe este historial."));
 
-  sections.push(section("Productos y precios actuales", ["Producto", "Categoría", "Rendimiento", "Costo unitario actual", "Precio de venta", "Ganancia sobre costo", "Estado"], currentProducts.map((item) => {
+  sections.push(section("Productos y precios actuales", ["Producto", "Categoría", "Unidades por producto", "Costo por producto", "Precio de venta", "Ganancia sobre costo", "Estado"], currentProducts.map((item) => {
     const cost = costOf(item);
-    return [text(item.name), text(item.category), number(item.yieldQuantity), cost ? money(cost.unitCost) : "No disponible", money(item.salePrice), cost ? percent(item.salePrice, cost.unitCost) : "No disponible", recordStatus(item)];
+    return [text(item.name), text(item.category), number(item.unitsPerProduct ?? 1), cost ? money(cost.unitCost) : "No disponible", money(item.salePrice), cost ? percent(item.salePrice, cost.unitCost) : "No disponible", recordStatus(item)];
   }), "Los costos de esta sección se calculan con las recetas y los precios de insumos actuales. No reemplazan los costos históricos de ventas o producciones."));
-  for (const item of currentProducts) {
+  for (const item of recipes) {
     const rows = (item.recipe || []).map((line) => {
       const source = ingredient(line.ingredientId);
       let lineCost = "No disponible";
@@ -137,7 +139,7 @@ export function buildBusinessReport(candidate, options = {}) {
   }
   const exportedAt = new Date(options.exportedAt || Date.now());
   if (!Number.isFinite(exportedAt.getTime())) throw new Error("La fecha de exportación no es válida.");
-  return { businessName: text(options.businessName || "Lo Cosito"), exportedAt: exportedAt.toISOString(), exportedBy: text(options.exportedBy), pendingChanges: Boolean(options.pendingChanges), summary, sections };
+  return { businessName: text(options.businessName || "Lo Cositos"), exportedAt: exportedAt.toISOString(), exportedBy: text(options.exportedBy), pendingChanges: Boolean(options.pendingChanges), summary, sections };
 }
 
 const validDay = (value) => {
@@ -207,7 +209,7 @@ export function buildIndividualReport(candidate, options = {}) {
       add("Detalle de compras de insumos", ["Fecha", "Insumo", "Cantidad", "Unidad", "Costo total", "Costo por unidad de compra"], selected.map((item) => [validDay(item.date) ? date(item.date) : "Sin fecha válida", text(item.ingredientName || state.ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name || "Insumo no disponible"), number(item.quantity), text(item.purchaseUnit), money(item.totalCost), numeric(item.quantity) > 0 ? `${money(numeric(item.totalCost) / numeric(item.quantity), true)} / ${text(item.purchaseUnit)}` : "No disponible"]));
     }
   }
-  return { title: titles[options.type], periodLabel: period.label, filename: `lo-cosito-${options.type === "sales" ? "ventas" : options.type === "purchases" ? "compras" : "clientes"}-${period.slug}.pdf`, scopeNote, businessName: text(options.businessName || "Lo Cosito"), exportedAt: exportedAt.toISOString(), exportedBy: text(options.exportedBy), pendingChanges: Boolean(options.pendingChanges), summary, sections };
+  return { title: titles[options.type], periodLabel: period.label, filename: `lo-cositos-${options.type === "sales" ? "ventas" : options.type === "purchases" ? "compras" : "clientes"}-${period.slug}.pdf`, scopeNote, businessName: text(options.businessName || "Lo Cositos"), exportedAt: exportedAt.toISOString(), exportedBy: text(options.exportedBy), pendingChanges: Boolean(options.pendingChanges), summary, sections };
 }
 
 export function createBusinessPdf(report, { jsPDF, autoTable }) {
@@ -217,7 +219,7 @@ export function createBusinessPdf(report, { jsPDF, autoTable }) {
   const margin = 14;
   const stamp = new Intl.DateTimeFormat("es-UY", { dateStyle: "short", timeStyle: "short", timeZone: "America/Montevideo" }).format(new Date(report.exportedAt));
   const pdfText = (value) => String(value).replace(/\u00a0/g, " ").replace(/[\u2010-\u2015]/g, "-").replace(/→/g, " a ");
-  doc.setProperties({ title: `${report.title || "Informe del negocio"} - ${report.businessName}`, subject: report.periodLabel || "Datos comerciales, costos actuales e historial", author: "Lo Cosito", creator: "Lo Cosito" });
+  doc.setProperties({ title: `${report.title || "Informe del negocio"} - ${report.businessName}`, subject: report.periodLabel || "Datos comerciales, costos actuales e historial", author: "Lo Cositos", creator: "Lo Cositos" });
   doc.setFont("helvetica", "bold");
   doc.setTextColor(68, 35, 50);
   doc.setFontSize(22);
@@ -297,7 +299,7 @@ export function createBusinessPdf(report, { jsPDF, autoTable }) {
   for (let page = 1; page <= pages; page++) {
     doc.setPage(page); doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(110);
     if (page > 1) doc.text(doc.splitTextToSize(pdfText(`${report.businessName} - ${report.title || "Informe del negocio"}`), width - margin * 2)[0], margin, 12);
-    doc.text("Lo Cosito | Datos del negocio | UYU", margin, height - 8);
+    doc.text("Lo Cositos | Datos del negocio | UYU", margin, height - 8);
     doc.text(`Página ${page} de ${pages}`, width - margin, height - 8, { align: "right" });
   }
   return doc;
@@ -325,7 +327,7 @@ export async function exportBusinessPdf(state, options = {}) {
   const library = await pdfLibrary();
   const doc = createBusinessPdf(report, library);
   const stamp = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Montevideo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(report.exportedAt));
-  await doc.save(`lo-cosito-informe-${stamp}.pdf`, { returnPromise: true });
+  await doc.save(`lo-cositos-informe-${stamp}.pdf`, { returnPromise: true });
   return { pages: doc.getNumberOfPages() };
 }
 

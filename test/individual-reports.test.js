@@ -29,7 +29,7 @@ test("ventas por mes y rango usan costos históricos y no incluyen pedidos ni co
   assert.deepEqual(month.summary, { count: 1, units: 1, revenue: 1500, cost: 265, profit: 1235 });
   assert.equal(month.sections.length, 2);
   assert.match(month.sections[1].rows[0][2], /Merienda/);
-  assert.equal(month.filename, "lo-cosito-ventas-2026-10.pdf");
+  assert.equal(month.filename, "lo-cositos-ventas-2026-10.pdf");
   const range = buildIndividualReport(state, { type: "sales", mode: "range", from: "2026-09-23", to: "2026-10-22" });
   assert.equal(range.summary.revenue, 3080);
   assert.equal(range.summary.cost, 505);

@@ -16,4 +16,4 @@ const server = createServer(async (request, response) => {
 });
 
 const port = Number(process.env.PORT || 4173);
-server.listen(port, () => console.log(`Lo Cosito disponible en http://localhost:${port}`));
+server.listen(port, () => console.log(`Lo Cositos disponible en http://localhost:${port}`));

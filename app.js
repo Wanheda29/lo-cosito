@@ -51,13 +51,14 @@ const pdfReportFilters = { type: "sales", mode: "month", month: currentMonth(), 
 const activeIngredients = () => state.ingredients.filter((item) => !item.deletedAt);
 const ingredientById = (id) => state.ingredients.find((item) => item.id === id);
 const productById = (id) => state.products.find((item) => item.id === id);
-const activeProducts = () => state.products.filter((item) => !item.deletedAt && item.kind !== "combo");
+const activeProducts = () => state.products.filter((item) => !item.deletedAt && !["combo", "recipe"].includes(item.kind));
+const activeRecipes = () => state.products.filter((item) => !item.deletedAt && item.kind === "recipe");
 const activeSellables = () => state.products.filter((item) => {
-  if (item.deletedAt) return false;
+  if (item.deletedAt || item.kind === "recipe") return false;
   try { productDefinition(item, state.products); return true; }
   catch { return false; }
 });
-const productionProducts = () => activeSellables().filter((product) => productDefinition(product, state.products).recipe?.every((line) => {
+const productionRecipes = () => activeRecipes().filter((recipe) => recipe.recipe?.length && recipe.recipe.every((line) => {
   const ingredient = ingredientById(line.ingredientId);
   return ingredient && !ingredient.deletedAt;
 }));
@@ -206,7 +207,7 @@ function renderDashboard() {
   app.innerHTML = `
     <section class="kitchen-banner" aria-labelledby="kitchen-title">
       <div class="kitchen-banner-copy">
-        <h2 id="kitchen-title">Lo Cosito</h2>
+        <h2 id="kitchen-title">Lo Cositos</h2>
         <div class="kitchen-links"><a href="#pedidos">Ver pedidos</a><a href="#agenda">Ver agenda</a></div>
       </div>
       <div class="kitchen-banner-photo"><img src="assets/cocina-vegetal.jpg" alt="" fetchpriority="high"></div>
@@ -402,24 +403,89 @@ function renderCombos() {
 }
 
 function renderProducts() {
+  const recipes = activeRecipes();
   const products = activeProducts();
-  app.innerHTML = pageHeading("Productos y recetas", "El costo se recalcula con los precios actuales de los insumos.", `<button class="primary" id="new-product" ${activeIngredients().length ? "" : "disabled"}>Nuevo producto</button>`) + `
-    ${!activeIngredients().length ? `<p class="warning">Creá al menos un insumo antes de armar una receta.</p>` : ""}
-    <div class="grid-2">${products.length ? products.map((product) => { const cost = recipeCost(product, state.ingredients, state.products); const profitPercent = profitOnCostPercent(product.salePrice, cost.unitCost); return `<article class="card"><div class="card-title-row"><span class="pill">${h(product.category || "Producto")}</span><div class="row-actions"><button class="ghost compact-button" data-edit-product="${product.id}">Editar</button><button class="danger compact-button" data-delete-product="${product.id}">Eliminar receta</button></div></div><h2>${h(product.name)}</h2>${product.recipe?.some((line) => ingredientById(line.ingredientId)?.deletedAt) ? `<p class="warning">Esta receta usa insumos eliminados. Conserva su último costo; reemplazalos o quitalos para volver a producir.</p>` : ""}<p class="muted">La receta rinde ${decimal.format(product.yieldQuantity)} ${product.yieldQuantity === 1 ? "unidad" : "unidades"}.</p><div class="stats" style="grid-template-columns:1fr 1fr"><div><small class="muted">Costo unitario</small><br><strong>${money.format(cost.unitCost)}</strong></div><div><small class="muted">Precio de venta</small><br><strong>${money.format(product.salePrice)}</strong></div></div><p>Ganancia sobre costo: <strong>${profitPercent === null ? "Sin costo definido" : `${decimal.format(profitPercent)}%`}</strong></p></article>`; }).join("") : `<article class="card" style="grid-column:1/-1">${empty("Todavía no hay productos ni recetas.")}</article>`}</div>`;
-  app.querySelector("#new-product")?.addEventListener("click", () => openProductDialog());
-  app.querySelectorAll("[data-edit-product]").forEach((button) => button.addEventListener("click", () => openProductDialog(productById(button.dataset.editProduct))));
+  const actions = (item, label) => `<div class="row-actions"><button class="ghost compact-button" data-edit-catalog="${h(item.id)}">Editar</button><button class="danger compact-button" data-delete-product="${h(item.id)}">Eliminar ${label}</button></div>`;
+  const recipeCards = recipes.map((recipe) => {
+    const cost = recipeCost(recipe, state.ingredients);
+    const removed = recipe.recipe?.some((line) => !ingredientById(line.ingredientId) || ingredientById(line.ingredientId).deletedAt);
+    return `<article class="card"><div class="card-title-row"><span class="pill">${h(recipe.category || "Receta")}</span>${actions(recipe, "receta")}</div><h3>${h(recipe.name)}</h3><p>Rinde ${decimal.format(recipe.yieldQuantity)} ${recipe.yieldQuantity === 1 ? "unidad" : "unidades"} por tanda.</p>${removed ? `<p class="warning">Revisá los insumos eliminados antes de producir.</p>` : ""}<div class="catalog-costs"><div><small class="muted">Costo por tanda</small><br><strong>${preciseMoney.format(cost.batchCost)}</strong></div><div><small class="muted">Costo por unidad</small><br><strong>${preciseMoney.format(cost.unitCost)}</strong></div></div></article>`;
+  });
+  const productCards = products.map((product) => {
+    const recipe = productById(product.recipeId);
+    let costs;
+    try {
+      const cost = recipeCost(product, state.ingredients, state.products).unitCost;
+      const profit = profitOnCostPercent(product.salePrice, cost);
+      costs = `<div class="catalog-costs"><div><small class="muted">Costo por producto</small><br><strong>${preciseMoney.format(cost)}</strong></div><div><small class="muted">Precio de venta</small><br><strong>${preciseMoney.format(product.salePrice)}</strong></div></div><p>Ganancia sobre costo: <strong>${profit === null ? "Sin costo definido" : `${decimal.format(profit)}%`}</strong></p>`;
+    } catch (error) { costs = `<p class="warning">${h(error.message)}</p>`; }
+    return `<article class="card"><div class="card-title-row"><span class="pill">${h(product.category || "Producto")}</span>${actions(product, "producto")}</div><h3>${h(product.name)}</h3><p class="muted">${recipe ? `${decimal.format(product.unitsPerProduct)} ${Number(product.unitsPerProduct) === 1 ? "unidad" : "unidades"} de ${h(recipe.name)} por producto` : "Sin receta vinculada"}</p>${costs}</article>`;
+  });
+  app.innerHTML = `<section class="catalog-section" aria-labelledby="recipes-heading">
+    <div class="section-heading"><h2 id="recipes-heading">Recetas</h2><button class="primary" id="new-recipe" ${activeIngredients().length ? "" : "disabled"}>Nueva receta</button></div>
+    ${recipeCards.length ? `<div class="grid-2">${recipeCards.join("")}</div>` : `<article class="card">${empty(activeIngredients().length ? "Todavía no hay recetas." : "Creá al menos un insumo antes de armar una receta.")}</article>`}
+  </section><section class="catalog-section" aria-labelledby="products-heading">
+    <div class="section-heading"><h2 id="products-heading">Productos</h2><button class="primary" id="new-product" ${recipes.length ? "" : "disabled"}>Nuevo producto</button></div>
+    ${productCards.length ? `<div class="grid-2">${productCards.join("")}</div>` : `<article class="card">${empty("Creá un producto de venta a partir de una receta.")}</article>`}
+  </section>`;
+  app.querySelector("#new-recipe").addEventListener("click", () => openRecipeDialog());
+  app.querySelector("#new-product").addEventListener("click", () => openSaleProductDialog());
+  app.querySelectorAll("[data-edit-catalog]").forEach((button) => button.addEventListener("click", () => {
+    const item = productById(button.dataset.editCatalog);
+    if (item.kind === "recipe") openRecipeDialog(item);
+    else openSaleProductDialog(item);
+  }));
   app.querySelectorAll("[data-delete-product]").forEach((button) => button.addEventListener("click", () => deleteProduct(button.dataset.deleteProduct)));
+}
+
+function openSaleProductDialog(existing = null) {
+  const recipes = activeRecipes();
+  const options = recipes.map((recipe) => `<option value="${h(recipe.id)}" ${existing?.recipeId === recipe.id ? "selected" : ""}>${h(recipe.name)} · ${decimal.format(recipe.yieldQuantity)} por tanda</option>`).join("");
+  const modal = dialog(`<h2>${existing ? "Editar producto" : "Nuevo producto"}</h2><form><div class="form-grid">
+    <div class="field"><label for="sale-product-name">Nombre</label><input id="sale-product-name" name="name" required value="${h(existing?.name || "")}" placeholder="Ej. Bandeja de milanesas x10"></div>
+    <div class="field"><label for="sale-product-category">Categoría</label><input id="sale-product-category" name="category" value="${h(existing?.category || "")}"></div>
+    <div class="field full"><label for="sale-product-recipe">Receta base</label><select id="sale-product-recipe" name="recipeId" required>${options || `<option value="">No hay recetas disponibles</option>`}</select></div>
+    <div class="field"><label for="sale-product-units">Unidades de receta por producto</label><input id="sale-product-units" name="unitsPerProduct" type="number" min="0.01" step="0.01" value="${h(existing?.unitsPerProduct ?? 1)}" required></div>
+    <div class="field"><label for="sale-product-price">Precio de venta por producto ($)</label><input id="sale-product-price" name="salePrice" type="number" min="0" step="0.01" value="${h(existing?.salePrice ?? "")}" required></div>
+    <div class="field full"><div class="cost-preview"><span>Costo estimado por producto</span><strong id="sale-product-cost" aria-live="polite"></strong></div></div>
+  </div><div class="form-actions"><button type="button" class="ghost" data-close>Cancelar</button><button class="primary">Guardar producto</button></div></form>`);
+  const form = modal.querySelector("form");
+  const draft = () => ({
+    kind: "product", name: form.elements.name.value.trim(), category: form.elements.category.value.trim(),
+    recipeId: form.elements.recipeId.value, unitsPerProduct: form.elements.unitsPerProduct.valueAsNumber, salePrice: form.elements.salePrice.valueAsNumber,
+  });
+  const updateCost = () => {
+    const values = draft();
+    try {
+      form.querySelector("#sale-product-cost").textContent = values.recipeId ? preciseMoney.format(recipeCost(values, state.ingredients, state.products).unitCost) : "—";
+    } catch { form.querySelector("#sale-product-cost").textContent = "—"; }
+  };
+  form.addEventListener("input", updateCost);
+  form.addEventListener("change", updateCost);
+  updateCost();
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const values = draft();
+    if (!values.name) return toast("Ingresá un nombre para el producto.");
+    if (!values.recipeId) return toast("Elegí una receta para el producto.");
+    try { productDefinition(values, state.products); }
+    catch (error) { return toast(error.message); }
+    if (existing) Object.assign(existing, values);
+    else state.products.push({ id: uid("prd"), ...values });
+    modal.close();
+    persist(existing ? "Producto actualizado" : "Producto guardado");
+  });
 }
 
 function deleteProduct(productId) {
   const product = productById(productId);
   try { deleteProductRecord(product, state.orders, new Date().toISOString(), null, state.products); }
   catch (error) { return toast(error.message, 6000); }
-  const label = product.kind === "combo" ? "combo" : "receta";
+  const label = { combo: "combo", recipe: "receta" }[product.kind] || "producto";
   confirmAction(`Eliminar ${label}`, "Se quitará «" + h(product.name) + "» del catálogo y de las opciones para nuevos registros. Las ventas, producciones e informes anteriores se conservan.", `Eliminar ${label}`, () => {
     try {
       Object.assign(product, deleteProductRecord(product, state.orders, new Date().toISOString(), cloudSession?.user?.email || null, state.products));
-      persist(product.kind === "combo" ? "Combo eliminado" : "Receta eliminada");
+      persist(label === "receta" ? "Receta eliminada" : product.kind === "combo" ? "Combo eliminado" : "Producto eliminado");
     } catch (error) { toast(error.message, 6000); }
   });
 }
@@ -428,8 +494,8 @@ function ingredientOptions(selectedId = null) {
   return state.ingredients.filter((item) => !item.deletedAt || item.id === selectedId).map((item) => `<option value="${item.id}">${h(item.name)} (${ingredientUnit(item)})${item.deletedAt ? " - eliminado" : ""}</option>`).join("");
 }
 
-function openProductDialog(existing = null) {
-  const modal = dialog(`<h2>${existing ? "Editar producto" : "Nuevo producto"}</h2><p>Solo la receta es necesaria. Todos los gastos adicionales pueden quedar en cero.</p><form id="product-form"><div class="form-grid"><div class="field"><label>Nombre</label><input name="name" required value="${h(existing?.name || "")}" placeholder="Ej. Hamburguesa de lentejas"></div><div class="field"><label>Categoría</label><input name="category" value="${h(existing?.category || "")}" placeholder="Ej. Hamburguesas"></div><div class="field"><label>Rendimiento de la receta</label><input name="yieldQuantity" type="number" min="0.01" step="0.01" value="${existing?.yieldQuantity || 1}" required></div><div class="field"><label>Precio de venta ($)</label><input name="salePrice" type="number" min="0" step="0.01" value="${existing?.salePrice || 0}" required></div><div class="field full"><label>Ingredientes</label><div id="recipe-lines" class="recipe-lines"></div><button type="button" class="ghost" id="add-line">+ Agregar ingrediente</button></div><div class="field full optional-box"><h3>Gastos opcionales por receta</h3><p>Completá solamente lo que quieras incluir en el cálculo.</p><div class="form-grid">${Object.entries(optionalLabels).map(([key, label]) => `<div class="field"><label>${label} ($)</label><input name="${key}" type="number" min="0" step="0.01" value="${existing?.optionalCosts?.[key] || ""}" placeholder="0"></div>`).join("")}</div></div><div class="field full"><div class="cost-preview"><span>Costo estimado de la receta</span><strong id="cost-preview">${money.format(0)}</strong></div></div></div><div class="form-actions"><button type="button" class="ghost" data-close>Cancelar</button><button class="primary">Guardar producto</button></div></form>`);
+function openRecipeDialog(existing = null) {
+  const modal = dialog(`<h2>${existing ? "Editar receta" : "Nueva receta"}</h2><form id="recipe-form"><div class="form-grid"><div class="field"><label>Nombre</label><input name="name" required value="${h(existing?.name || "")}" placeholder="Ej. Hamburguesa de lentejas"></div><div class="field"><label>Categoría</label><input name="category" value="${h(existing?.category || "")}" placeholder="Ej. Hamburguesas"></div><div class="field"><label>Rendimiento de la receta</label><input name="yieldQuantity" type="number" min="0.01" step="0.01" value="${existing?.yieldQuantity || 1}" required></div><div class="field full"><label>Ingredientes</label><div id="recipe-lines" class="recipe-lines"></div><button type="button" class="ghost" id="add-line">+ Agregar ingrediente</button></div><div class="field full optional-box"><h3>Gastos opcionales por receta</h3><p>Completá solamente lo que quieras incluir en el cálculo.</p><div class="form-grid">${Object.entries(optionalLabels).map(([key, label]) => `<div class="field"><label>${label} ($)</label><input name="${key}" type="number" min="0" step="0.01" value="${existing?.optionalCosts?.[key] || ""}" placeholder="0"></div>`).join("")}</div></div><div class="field full"><div class="cost-preview"><span>Costo estimado de la receta</span><strong id="cost-preview">${money.format(0)}</strong></div></div></div><div class="form-actions"><button type="button" class="ghost" data-close>Cancelar</button><button class="primary">Guardar receta</button></div></form>`);
   const form = modal.querySelector("form");
   const lines = form.querySelector("#recipe-lines");
   const addLine = (line = null) => {
@@ -472,19 +538,20 @@ function openProductDialog(existing = null) {
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const draft = getDraft();
-    const values = { name: form.elements.name.value.trim(), category: form.elements.category.value.trim(), salePrice: Number(form.elements.salePrice.value), ...draft };
+    const values = { name: form.elements.name.value.trim(), category: form.elements.category.value.trim(), kind: "recipe", ...draft };
+    if (!values.name) return toast("Ingresá un nombre para la receta.");
     if (existing) Object.assign(existing, values);
-    else state.products.push({ id: uid("prd"), ...values });
+    else state.products.push({ id: uid("rec"), ...values });
     modal.close();
-    persist(existing ? "Producto actualizado" : "Producto y receta guardados");
+    persist(existing ? "Receta actualizada" : "Receta guardada");
   });
 }
 
 function renderProduction() {
   const productions = state.productions.filter((item) => !item.deletedAt).slice().reverse();
-  app.innerHTML = pageHeading("Producción", "Registrá cada elaboración y descontá sus insumos del inventario.", `<button class="primary" id="new-production" ${productionProducts().length ? "" : "disabled"}>Registrar producción</button>`) + `
-    ${!productionProducts().length ? `<p class="warning">Necesitás una receta con insumos activos para producir. Si eliminaste un insumo, reemplazalo o quitalo de las recetas que lo usen.</p>` : ""}
-    <article class="card">${productions.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Producto</th><th>Tandas</th><th>Unidades obtenidas</th><th>Costo total</th><th>Estado</th><th></th></tr></thead><tbody>${productions.map((production) => `<tr class="production-row ${production.voidedAt ? "voided-row" : ""}" data-production-details="${production.id}"><td>${h(production.date)}</td><td><button class="production-name" data-open-production="${production.id}">${h(production.productNameSnapshot || productById(production.productId)?.name || "Producto eliminado")}<small>Ver desglose</small></button></td><td>${decimal.format(production.batches)}</td><td>${decimal.format(production.producedQuantity)}</td><td>${money.format(production.totalCostSnapshot)}${production.costUnestimated ? `<small class="history-note muted">Costo parcial: aporte sin estimar</small>` : ""}</td><td>${production.voidedAt ? `<span class="status status-cancelado">Anulada</span>` : `<span class="status status-entregado">Registrada</span>`}</td><td class="actions"><div class="row-actions">${production.voidedAt ? "" : `<button class="ghost compact-button" data-void-production="${production.id}">Anular</button>`}<button class="danger compact-button" data-delete-production="${production.id}">Eliminar</button></div></td></tr>`).join("")}</tbody></table></div>` : empty("Las elaboraciones registradas aparecerán aquí.")}</article>`;
+  app.innerHTML = pageHeading("Producción", "Registrá cada elaboración y descontá sus insumos del inventario.", `<button class="primary" id="new-production" ${productionRecipes().length ? "" : "disabled"}>Registrar producción</button>`) + `
+    ${!productionRecipes().length ? `<p class="warning">Necesitás una receta con insumos activos para producir. Si eliminaste un insumo, reemplazalo o quitalo de las recetas que lo usen.</p>` : ""}
+    <article class="card">${productions.length ? `<div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Receta</th><th>Tandas</th><th>Unidades obtenidas</th><th>Costo total</th><th>Estado</th><th></th></tr></thead><tbody>${productions.map((production) => `<tr class="production-row ${production.voidedAt ? "voided-row" : ""}" data-production-details="${production.id}"><td>${h(production.date)}</td><td><button class="production-name" data-open-production="${production.id}">${h(production.productNameSnapshot || productById(production.recipeId ?? production.productId)?.name || "Receta no disponible")}<small>Ver desglose</small></button></td><td>${decimal.format(production.batches)}</td><td>${decimal.format(production.producedQuantity)}</td><td>${money.format(production.totalCostSnapshot)}${production.costUnestimated ? `<small class="history-note muted">Costo parcial: aporte sin estimar</small>` : ""}</td><td>${production.voidedAt ? `<span class="status status-cancelado">Anulada</span>` : `<span class="status status-entregado">Registrada</span>`}</td><td class="actions"><div class="row-actions">${production.voidedAt ? "" : `<button class="ghost compact-button" data-void-production="${production.id}">Anular</button>`}<button class="danger compact-button" data-delete-production="${production.id}">Eliminar</button></div></td></tr>`).join("")}</tbody></table></div>` : empty("Las elaboraciones registradas aparecerán aquí.")}</article>`;
   app.querySelector("#new-production")?.addEventListener("click", openProductionDialog);
   app.querySelectorAll("[data-production-details]").forEach((row) => row.addEventListener("click", (event) => {
     if (event.target.closest("[data-void-production], [data-delete-production]")) return;
@@ -501,7 +568,7 @@ function openProductionDetails(productionId) {
   const optionalLines = breakdown.optionalLines === null && breakdown.optionalCost > 0
     ? [{ label: "Otros gastos (detalle anterior no disponible)", totalCost: breakdown.optionalCost }]
     : breakdown.optionalLines || [];
-  dialog(`<h2>Desglose de producción</h2><p>${h(production.productNameSnapshot || productById(production.productId)?.name || "Producto eliminado")} · ${h(production.date)} · ${decimal.format(production.batches)} tanda${production.batches === 1 ? "" : "s"} · ${decimal.format(production.producedQuantity)} ${production.producedQuantity === 1 ? "unidad" : "unidades"}</p>
+  dialog(`<h2>Desglose de producción</h2><p>${h(production.productNameSnapshot || productById(production.recipeId ?? production.productId)?.name || "Receta no disponible")} · ${h(production.date)} · ${decimal.format(production.batches)} tanda${production.batches === 1 ? "" : "s"} · ${decimal.format(production.producedQuantity)} ${production.producedQuantity === 1 ? "unidad" : "unidades"}</p>
     ${production.voidedAt ? `<p class="warning">Esta producción fue anulada. Los importes son los registrados originalmente.</p>` : ""}
     ${production.costUnestimated ? `<p class="warning">Costo parcial: se utilizaron insumos de casa sin valor estimado.</p>` : ""}
     <div class="breakdown"><h3>Insumos</h3>${breakdown.ingredients.length ? breakdown.ingredients.map((line) => `<div class="breakdown-line"><span>${h(line.name)}<small>${decimal.format(line.quantity)} ${h(line.unit)} · ${preciseMoney.format(line.quantity ? line.cost / line.quantity : 0)} por ${h(line.unit || "unidad")}</small></span><strong>${preciseMoney.format(line.cost)}</strong></div>`).join("") : `<p class="muted">No se registraron insumos.</p>`}<div class="breakdown-line subtotal"><span>Subtotal de insumos</span><strong>${preciseMoney.format(breakdown.ingredientCost)}</strong></div>
@@ -544,30 +611,30 @@ function deleteProduction(productionId) {
 }
 
 function openProductionDialog() {
-  const modal = dialog(`<h2>Registrar producción</h2><p>Si falta stock registrado, podés indicar que usaste insumos de casa.</p><form><div class="form-grid"><div class="field full"><label>Producto</label><select name="productId">${productionProducts().map((product) => `<option value="${product.id}">${product.kind === "combo" ? "Combo · " : ""}${h(product.name)}</option>`).join("")}</select></div><div class="field"><label>Cantidad de tandas</label><input name="batches" type="number" min="0.01" step="0.01" value="1" required></div><div class="field"><label>Fecha</label><input name="date" type="date" value="${today()}" required></div><div class="field full"><div id="production-preview" class="production-preview"></div></div></div><div class="form-actions"><button type="button" class="ghost" data-close>Cancelar</button><button class="primary" id="save-production">Registrar y descontar</button></div></form>`);
+  const modal = dialog(`<h2>Registrar producción</h2><p>Si falta stock registrado, podés indicar que usaste insumos de casa.</p><form><div class="form-grid"><div class="field full"><label for="production-recipe">Receta</label><select id="production-recipe" name="recipeId">${productionRecipes().map((product) => `<option value="${h(product.id)}">${h(product.name)}</option>`).join("")}</select></div><div class="field"><label>Cantidad de tandas</label><input name="batches" type="number" min="0.01" step="0.01" value="1" required></div><div class="field"><label>Fecha</label><input name="date" type="date" value="${today()}" required></div><div class="field full"><div id="production-preview" class="production-preview"></div></div></div><div class="form-actions"><button type="button" class="ghost" data-close>Cancelar</button><button class="primary" id="save-production">Registrar y descontar</button></div></form>`);
   const form = modal.querySelector("form");
   const preview = form.querySelector("#production-preview");
   const homeValues = () => Object.fromEntries([...preview.querySelectorAll("[data-home-cost]")].map((field) => [field.dataset.homeCost, Number(field.value || 0)]));
   const refreshCost = () => {
     try {
-      const result = productionWithHomeSupply(productById(form.elements.productId.value), state.ingredients, Number(form.elements.batches.value || 1), homeValues(), state.products);
+      const result = productionWithHomeSupply(productById(form.elements.recipeId.value), state.ingredients, Number(form.elements.batches.value || 1), homeValues(), state.products);
       preview.querySelector("#production-cost").textContent = money.format(result.plan.totalCost);
     } catch { /* El formulario nativo señala valores incompletos. */ }
   };
   const updatePreview = () => {
-    const product = productById(form.elements.productId.value);
+    const product = productById(form.elements.recipeId.value);
     const plan = productionPlan(product, state.ingredients, Number(form.elements.batches.value || 1), state.products);
     preview.innerHTML = `<div class="cost-preview"><span>Se obtendrá${plan.producedQuantity === 1 ? "" : "n"} <strong>${decimal.format(plan.producedQuantity)}</strong> ${plan.producedQuantity === 1 ? "unidad" : "unidades"}</span><strong id="production-cost">${money.format(plan.totalCost)}</strong></div><div class="requirement-list">${plan.requirements.map((line) => `<div class="requirement ${line.enough ? "enough" : "missing"}"><span>${h(line.name)}</span><span>${decimal.format(line.required)} ${h(line.unit)} / ${decimal.format(line.available)} ${h(line.unit)}</span></div>`).join("")}</div>${plan.canProduce ? "" : `<div class="warning"><strong>Falta stock registrado.</strong> Si usaste insumos de casa, indicá el valor aproximado de lo que faltó. El aporte quedará en el historial, no en Compras.${plan.requirements.filter((line) => !line.enough).map((line) => `<div class="field home-cost-field"><label>Valor de ${decimal.format(line.required - line.available)} ${h(line.unit)} de ${h(line.name)} ($)</label><input data-home-cost="${h(line.ingredientId)}" type="number" min="0" step="0.01" value="${((line.required - line.available) * Number(ingredientById(line.ingredientId)?.averageCost || 0)).toFixed(2)}"><small>Si no conocés el valor, dejá cero y el costo se marcará como parcial.</small></div>`).join("")}</div>`}`;
     form.querySelector("#save-production").textContent = plan.canProduce ? "Registrar y descontar" : "Registrar con insumos de casa";
     preview.querySelectorAll("[data-home-cost]").forEach((field) => field.addEventListener("input", refreshCost));
     refreshCost();
   };
-  form.elements.productId.addEventListener("change", updatePreview);
+  form.elements.recipeId.addEventListener("change", updatePreview);
   form.elements.batches.addEventListener("input", updatePreview);
   updatePreview();
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    const product = productById(form.elements.productId.value);
+    const product = productById(form.elements.recipeId.value);
     let result;
     try { result = productionWithHomeSupply(product, state.ingredients, Number(form.elements.batches.value), homeValues(), state.products); }
     catch (error) { return toast(error.message); }
@@ -580,7 +647,7 @@ function openProductionDialog() {
     result.adjustments.forEach((entry) => state.stockAdjustments.push({ ...entry, id: uid("adj"), ingredientName: ingredientById(entry.ingredientId).name, unit: ingredientById(entry.ingredientId).baseUnit, reason: "production", note: `Producción de ${product.name}`, date: form.elements.date.value, createdAt: new Date().toISOString(), actorEmail: cloudSession?.user?.email || null, sourceProductionId: productionId }));
     result.plan.requirements.forEach((line) => { ingredientById(line.ingredientId).stock -= line.required; });
     const optionalCostsSnapshot = Object.entries(productDefinition(product, state.products).optionalCosts || {}).map(([key, value]) => ({ label: optionalLabels[key] || key, totalCost: Number(value || 0) * result.plan.batches })).filter((line) => line.totalCost > 0);
-    state.productions.push({ id: productionId, productId: product.id, productNameSnapshot: product.name, date: form.elements.date.value, batches: result.plan.batches, producedQuantity: result.plan.producedQuantity, totalCostSnapshot: result.plan.totalCost, unitCostSnapshot: result.plan.unitCost, costUnestimated: result.costUnestimated, requirementsSnapshot: result.plan.requirements, optionalCostsSnapshot });
+    state.productions.push({ id: productionId, recipeId: product.id, productNameSnapshot: product.name, date: form.elements.date.value, batches: result.plan.batches, producedQuantity: result.plan.producedQuantity, totalCostSnapshot: result.plan.totalCost, unitCostSnapshot: result.plan.unitCost, costUnestimated: result.costUnestimated, requirementsSnapshot: result.plan.requirements, optionalCostsSnapshot });
     modal.close();
     persist("Producción registrada e insumos descontados");
   });
@@ -690,7 +757,7 @@ function openOrderDialog(existing = null) {
     event.preventDefault();
     const data = new FormData(form);
     const values = { clientId: data.get("clientId") || null, customerName: data.get("customerName").trim(), phone: data.get("phone").trim(), productId: data.get("productId"), quantity: Number(data.get("quantity")), deliveryDate: data.get("deliveryDate"), totalPrice: Number(data.get("totalPrice")), deposit: Number(data.get("deposit") || 0), notes: data.get("notes").trim() };
-    if (productById(values.productId)?.deletedAt && !["entregado", "cancelado"].includes(existing?.status)) return toast("La receta fue eliminada. Elegí otra receta.", 6000);
+    if (productById(values.productId)?.deletedAt && !["entregado", "cancelado"].includes(existing?.status)) return toast("El producto fue eliminado. Elegí otro producto.", 6000);
     if (values.deposit > values.totalPrice) return toast("La seña no puede superar el total");
     if (existing) Object.assign(existing, values);
     else state.orders.push({ id: uid("ord"), status: "pendiente", saleId: null, createdAt: today(), ...values });
@@ -701,7 +768,7 @@ function openOrderDialog(existing = null) {
 
 function updateOrderStatus(orderId, status) {
   const order = state.orders.find((item) => item.id === orderId);
-  if (productById(order.productId)?.deletedAt && !["entregado", "cancelado"].includes(status)) return toast("La receta fue eliminada. Creá una receta nueva antes de reactivar el pedido.", 6000);
+  if (productById(order.productId)?.deletedAt && !["entregado", "cancelado"].includes(status)) return toast("El producto fue eliminado. Elegí otro antes de reactivar el pedido.", 6000);
   if (status === "entregado" && !order.saleId) {
     const product = productById(order.productId);
     let sale;
@@ -817,7 +884,7 @@ function renderReports() {
     const filters = { ...pdfReportFilters };
     try {
       await new Promise((resolve) => setTimeout(resolve, 0));
-      const result = await exportIndividualPdf(state, { ...filters, businessName: cloudAccount?.businessName || "Lo Cosito", exportedBy: cloudSession?.user?.email, pendingChanges: Boolean(cloudAccount?.businessId && readCloudDraft(cloudAccount.businessId)) });
+      const result = await exportIndividualPdf(state, { ...filters, businessName: cloudAccount?.businessName || "Lo Cositos", exportedBy: cloudSession?.user?.email, pendingChanges: Boolean(cloudAccount?.businessId && readCloudDraft(cloudAccount.businessId)) });
       status.textContent = `PDF generado: ${result.pages} ${result.pages === 1 ? "página" : "páginas"}. Revisá tus descargas.`;
       toast("Reporte PDF descargado");
     } catch (error) {
@@ -835,7 +902,7 @@ function renderData() {
       <article class="card backup-card"><div class="backup-icon">PDF</div><div><h2>Informe completo en PDF</h2><p>Exportá clientes, insumos, recetas, combos, compras, ajustes, pedidos, producciones y ventas en tablas, con totales e historial. Para restaurar datos necesitás el respaldo JSON.</p></div><button class="primary" id="download-pdf">Descargar PDF</button><p id="pdf-status" class="muted" role="status" aria-live="polite"></p></article>
       <article class="card backup-card"><div class="backup-icon">↑</div><div><h2>Restaurar respaldo</h2><p>El archivo se revisará antes de reemplazar los datos actuales. También se aceptan respaldos de la versión anterior.</p></div><button class="secondary" id="choose-backup" ${restoringDisabled ? "disabled" : ""}>Elegir archivo</button><input id="backup-file" type="file" accept="application/json,.json" hidden></article>
     </div>
-    <article class="card data-summary"><h3>${cloudAccount ? "Datos del negocio" : "Contenido actual de este dispositivo"}</h3><div>${Object.entries({ Insumos: summary.ingredients, Ajustes: summary.stockAdjustments, Compras: summary.purchases, "Productos y combos": summary.products, Producciones: summary.productions, Clientes: summary.clients, Pedidos: summary.orders, Ventas: summary.sales }).map(([label, value]) => `<span><strong>${value}</strong><small>${label}</small></span>`).join("")}</div><p class="warning"><strong>Importante:</strong> ${cloudAccount ? cloudWriteBlocked ? "Hay cambios pendientes de sincronización. Descargá un respaldo del borrador." : "Descargá respaldos periódicos además de la sincronización." : "La información vive solamente en este navegador. Descargá respaldos con frecuencia."}</p></article>`;
+    <article class="card data-summary"><h3>${cloudAccount ? "Datos del negocio" : "Contenido actual de este dispositivo"}</h3><div>${Object.entries({ Insumos: summary.ingredients, Ajustes: summary.stockAdjustments, Compras: summary.purchases, Recetas: summary.recipes, "Productos y combos": summary.products, Producciones: summary.productions, Clientes: summary.clients, Pedidos: summary.orders, Ventas: summary.sales }).map(([label, value]) => `<span><strong>${value}</strong><small>${label}</small></span>`).join("")}</div><p class="warning"><strong>Importante:</strong> ${cloudAccount ? cloudWriteBlocked ? "Hay cambios pendientes de sincronización. Descargá un respaldo del borrador." : "Descargá respaldos periódicos además de la sincronización." : "La información vive solamente en este navegador. Descargá respaldos con frecuencia."}</p></article>`;
   app.querySelector("#download-backup").addEventListener("click", () => { exportState(state); toast("Respaldo descargado"); });
   app.querySelector("#download-pdf").addEventListener("click", async (event) => {
     const button = event.currentTarget;
@@ -846,7 +913,7 @@ function renderData() {
     try {
       await new Promise((resolve) => setTimeout(resolve, 0));
       const result = await exportBusinessPdf(state, {
-        businessName: cloudAccount?.businessName || "Lo Cosito",
+        businessName: cloudAccount?.businessName || "Lo Cositos",
         exportedBy: cloudSession?.user?.email,
         pendingChanges: Boolean(cloudAccount?.businessId && readCloudDraft(cloudAccount.businessId)),
       });
@@ -866,7 +933,7 @@ function renderData() {
     try {
       const backup = parseBackup(await file.text());
       const incoming = backupSummary(backup.data);
-      const detail = `${incoming.ingredients} insumos, ${incoming.stockAdjustments} ajustes de stock, ${incoming.products} productos y combos, ${incoming.clients} clientes, ${incoming.orders} pedidos y ${incoming.sales} ventas`;
+      const detail = `${incoming.ingredients} insumos, ${incoming.stockAdjustments} ajustes de stock, ${incoming.recipes} recetas, ${incoming.products} productos y combos, ${incoming.clients} clientes, ${incoming.orders} pedidos y ${incoming.sales} ventas`;
       confirmAction("Restaurar respaldo", `Se reemplazarán los datos de este navegador por: ${detail}. Esta acción no se puede deshacer sin un respaldo de la información actual.`, "Restaurar datos", () => {
         state = backup.data;
         persist(backup.legacy ? "Respaldo anterior restaurado" : "Respaldo restaurado");
@@ -982,8 +1049,9 @@ async function retryCloudDraft() {
       renderSyncProblem();
       return;
     }
-    cloudRevision = await pushCloudState(cloudAccount.businessId, draft.data, remoteRevision);
-    state = normalizeState(draft.data);
+    const snapshot = normalizeState(draft.data);
+    cloudRevision = await pushCloudState(cloudAccount.businessId, snapshot, remoteRevision);
+    state = snapshot;
     confirmedCloudState = structuredClone(state);
     localStorage.removeItem(cloudDraftKey(cloudAccount.businessId));
     cloudWriteBlocked = false;

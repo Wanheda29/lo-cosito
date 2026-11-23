@@ -80,12 +80,13 @@ test("protege productos usados por combos y conserva historial al eliminar un co
   assert.equal(removed.deletedAt, "hoy");
 });
 
-test("los combos sobreviven a la sincronización y al respaldo versión 3", () => {
+test("los combos conservan referencias y costos al migrar respaldos anteriores", () => {
   const state = { ...structuredClone(emptyState), ingredients: ingredients(), products: [...products(), combo()] };
   const backup = createBackup(state);
-  assert.equal(backup.schemaVersion, 3);
+  assert.equal(backup.schemaVersion, 4);
   const restored = parseBackup(JSON.stringify(backup)).data;
-  assert.deepEqual(restored, state);
+  assert.deepEqual(restored.products[2], combo());
   assert.equal(recipeCost(restored.products[2], restored.ingredients, restored.products).unitCost, 88);
-  assert.deepEqual(parseBackup(JSON.stringify({ application: "Lo Cosito", schemaVersion: 2, data: { products: products() } })).data.products, products());
+  const old = parseBackup(JSON.stringify({ application: "Lo Cosito", schemaVersion: 2, data: state })).data;
+  assert.deepEqual(old, restored);
 });

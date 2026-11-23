@@ -1,5 +1,5 @@
 -- Completar los correos de usuarios ya creados en Authentication > Users.
--- Ejecutar desde SQL Editor en el proyecto de Lo Cosito.
+-- Ejecutar desde SQL Editor en el proyecto de Lo Cositos.
 do $$
 declare
   team_emails text[] := array[]::text[];
@@ -11,7 +11,7 @@ begin
     raise exception 'Agregá los correos del equipo a team_emails antes de ejecutar.';
   end if;
 
-  insert into public.businesses (id, name) values (lo_cosito_id, 'Lo Cosito')
+  insert into public.businesses (id, name) values (lo_cosito_id, 'Lo Cositos')
   on conflict (id) do nothing;
 
   foreach team_email in array team_emails loop

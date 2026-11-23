@@ -1,5 +1,7 @@
 const STORAGE_KEY = "lo-cosito-v1";
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
+const BACKUP_APPLICATION = "Lo Cositos";
+const PREVIOUS_APPLICATION = "Lo Cosito";
 
 export const emptyState = {
   ingredients: [],
@@ -13,6 +15,23 @@ export const emptyState = {
 };
 
 const collectionNames = Object.keys(emptyState);
+
+function separateLegacyRecipes(products) {
+  const usedIds = new Set(products.map((item) => item.id));
+  const recipes = [];
+  const catalog = products.map((item) => {
+    if (item.kind === "recipe" || item.kind === "combo" || item.recipeId || !Array.isArray(item.recipe)) return item;
+    const { recipe, optionalCosts, yieldQuantity, ...product } = item;
+    const baseId = `rec_${item.id}`;
+    let recipeId = baseId;
+    for (let suffix = 2; usedIds.has(recipeId); suffix++) recipeId = `${baseId}_${suffix}`;
+    usedIds.add(recipeId);
+    const units = Number(yieldQuantity) > 0 ? Number(yieldQuantity) : 1;
+    recipes.push({ id: recipeId, kind: "recipe", name: item.name || "", category: item.category || "", yieldQuantity: units, recipe, optionalCosts: optionalCosts || {}, deletedAt: item.deletedAt ?? null, deletedBy: item.deletedBy ?? null });
+    return { ...product, kind: "product", recipeId, unitsPerProduct: Math.min(units, 1) };
+  });
+  return [...catalog, ...recipes];
+}
 
 export function normalizeState(candidate) {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw new Error("El respaldo no contiene datos válidos.");
@@ -28,6 +47,7 @@ export function normalizeState(candidate) {
     if (new Set(ids).size !== ids.length) throw new Error(`La colección “${collection}” contiene identificadores repetidos.`);
     normalized[collection] = value;
   }
+  normalized.products = separateLegacyRecipes(normalized.products);
   return normalized;
 }
 
@@ -52,7 +72,7 @@ export function exportState(state) {
   const date = new Date();
   const localDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
   link.href = objectUrl;
-  link.download = `lo-cosito-${localDate}.json`;
+  link.download = `lo-cositos-${localDate}.json`;
   document.body.append(link);
   link.click();
   link.remove();
@@ -61,7 +81,7 @@ export function exportState(state) {
 
 export function createBackup(state, exportedAt = new Date().toISOString()) {
   return {
-    application: "Lo Cosito",
+    application: BACKUP_APPLICATION,
     schemaVersion: CURRENT_SCHEMA_VERSION,
     exportedAt,
     data: normalizeState(state),
@@ -75,9 +95,10 @@ export function parseBackup(text) {
   } catch {
     throw new Error("El archivo no contiene JSON válido.");
   }
-  const isEnvelope = parsed?.application === "Lo Cosito" || Object.hasOwn(parsed ?? {}, "schemaVersion");
+  const validApplication = [BACKUP_APPLICATION, PREVIOUS_APPLICATION].includes(parsed?.application);
+  const isEnvelope = validApplication || Object.hasOwn(parsed ?? {}, "schemaVersion");
   if (isEnvelope) {
-    if (parsed.application !== "Lo Cosito") throw new Error("El archivo pertenece a otra aplicación.");
+    if (!validApplication) throw new Error("El archivo pertenece a otra aplicación.");
     if (!Number.isInteger(parsed.schemaVersion) || parsed.schemaVersion < 1) throw new Error("La versión del respaldo no es válida.");
     if (parsed.schemaVersion > CURRENT_SCHEMA_VERSION) throw new Error("El respaldo fue creado con una versión más nueva de la aplicación.");
     return { data: normalizeState(parsed.data), schemaVersion: parsed.schemaVersion, exportedAt: parsed.exportedAt || null, legacy: false };
@@ -91,7 +112,8 @@ export function backupSummary(state) {
     ingredients: data.ingredients.length,
     stockAdjustments: data.stockAdjustments.length,
     purchases: data.purchases.length,
-    products: data.products.length,
+    products: data.products.filter((item) => item.kind !== "recipe").length,
+    recipes: data.products.filter((item) => item.kind === "recipe").length,
     productions: data.productions.length,
     clients: data.clients.length,
     orders: data.orders.length,

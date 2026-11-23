@@ -39,7 +39,9 @@ test("compras y producciones anteriores pueden revertirse conservando la elimina
 test("el respaldo conserva insumos eliminados y el informe excluye su valor activo", () => {
   const removed = deleteIngredientRecord(ingredient, "2026-10-24");
   const state = { ...structuredClone(emptyState), ingredients: [removed], products: [product] };
-  assert.deepEqual(parseBackup(JSON.stringify(createBackup(state))).data, state);
+  const restored = parseBackup(JSON.stringify(createBackup(state))).data;
+  assert.deepEqual(restored.ingredients, [removed]);
+  assert.deepEqual(restored.products.find((item) => item.kind === "recipe").recipe, product.recipe);
   const report = buildBusinessReport(state);
   assert.equal(report.summary.stockValue, 0);
   const row = report.sections.find((item) => item.title === "Insumos y existencias actuales").rows[0];

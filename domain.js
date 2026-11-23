@@ -36,7 +36,10 @@ export function recipeLineQuantity(line, ingredient) {
 }
 
 export function deleteProductRecord(product, orders, deletedAt, deletedBy = null, products = []) {
-  if (!product || product.deletedAt) throw new Error("La receta ya fue eliminada.");
+  if (!product || product.deletedAt) throw new Error("El registro ya fue eliminado.");
+  if (product.kind === "recipe" && products.some((item) => !item.deletedAt && item.recipeId === product.id)) {
+    throw new Error("No se puede eliminar: hay productos que usan esta receta. Cambiales la receta o eliminalos primero.");
+  }
   if (orders.some((order) => order.productId === product.id && !order.deletedAt && !["entregado", "cancelado"].includes(order.status))) {
     throw new Error("No se puede eliminar: tiene pedidos pendientes. Completalos o cancelalos primero.");
   }
@@ -53,6 +56,18 @@ export function deleteIngredientRecord(ingredient, deletedAt, deletedBy = null) 
 
 export function productDefinition(product, products = []) {
   if (!product) throw new Error("El producto no existe.");
+  if (product.recipeId) {
+    const source = products.find((item) => item.id === product.recipeId && item.kind === "recipe");
+    if (!source || (source.deletedAt && !product.deletedAt)) throw new Error("Elegí una receta disponible para este producto.");
+    const units = Number(product.unitsPerProduct);
+    const yieldQuantity = Number(source.yieldQuantity);
+    if (!Number.isFinite(units) || units <= 0) throw new Error("La cantidad de unidades por producto debe ser mayor a cero.");
+    if (!Number.isFinite(yieldQuantity) || yieldQuantity <= 0) throw new Error("El rendimiento de la receta debe ser mayor a cero.");
+    const factor = units / yieldQuantity;
+    const recipe = (source.recipe || []).map((line) => ({ ...line, quantity: Number(line.quantity) * factor }));
+    const optionalCosts = Object.fromEntries(Object.entries(source.optionalCosts || {}).map(([key, value]) => [key, Number(value || 0) * factor]));
+    return { ...product, recipeId: undefined, recipe, optionalCosts, yieldQuantity: 1 };
+  }
   if (product.kind !== "combo") return product;
   if (!Array.isArray(product.items) || !product.items.length) throw new Error("Agregá al menos un producto al combo.");
   const recipe = [];
@@ -64,13 +79,15 @@ export function productDefinition(product, products = []) {
     const component = products.find((entry) => entry.id === item.productId);
     if (!component || component.deletedAt) throw new Error("El combo contiene un producto que ya no está disponible.");
     if (component.kind === "combo" || component.id === product.id) throw new Error("Elegí productos individuales; un combo no puede incluir otro combo.");
+    if (component.kind === "recipe") throw new Error("Elegí un producto de venta para el combo.");
+    const definition = productDefinition(component, products);
     const quantity = Number(item.quantity);
     if (!Number.isInteger(quantity) || quantity <= 0) throw new Error("La cantidad de cada producto debe ser un número entero mayor a cero.");
-    const yieldQuantity = Math.max(Number(component.yieldQuantity || 1), 1);
+    const yieldQuantity = Math.max(Number(definition.yieldQuantity || 1), 1);
     if (!Number.isFinite(yieldQuantity)) throw new Error("El rendimiento del producto no es válido.");
     const factor = quantity / yieldQuantity;
-    recipe.push(...(component.recipe || []).map((line) => ({ ...line, quantity: Number(line.quantity) * factor })));
-    for (const [key, value] of Object.entries(component.optionalCosts || {})) {
+    recipe.push(...(definition.recipe || []).map((line) => ({ ...line, quantity: Number(line.quantity) * factor })));
+    for (const [key, value] of Object.entries(definition.optionalCosts || {})) {
       optionalCosts[key] = Number(optionalCosts[key] || 0) + Number(value || 0) * factor;
     }
   }
@@ -226,7 +243,7 @@ export function recipeCost(product, ingredients, products = []) {
     0,
   );
   const batchCost = ingredientCost + optionalCost;
-  const yieldQuantity = Math.max(Number(product.yieldQuantity || 1), 1);
+  const yieldQuantity = product.kind === "recipe" ? Number(product.yieldQuantity) : Math.max(Number(product.yieldQuantity || 1), 1);
   return { ingredientCost, optionalCost, batchCost, unitCost: batchCost / yieldQuantity };
 }
 
@@ -274,7 +291,7 @@ export function monthlySummary(sales, month) {
 }
 
 export function saleFromOrder(order, product, ingredients, date, id, products = []) {
-  if (!order || !product || Number(order.quantity) <= 0) throw new Error("El pedido no se puede convertir en venta.");
+  if (!order || !product || product.kind === "recipe" || Number(order.quantity) <= 0) throw new Error("El pedido no se puede convertir en venta.");
   return {
     id,
     productId: product.id,
@@ -291,7 +308,7 @@ export function saleFromOrder(order, product, ingredients, date, id, products = 
 export function productionPlan(product, ingredients, batches = 1, products = []) {
   product = productDefinition(product, products);
   const batchCount = Number(batches);
-  if (!product || batchCount <= 0) throw new Error("La cantidad de tandas debe ser positiva.");
+  if (!Number.isFinite(batchCount) || batchCount <= 0) throw new Error("La cantidad de tandas debe ser positiva.");
   const totals = new Map();
   for (const line of product.recipe ?? []) {
     const ingredient = ingredients.find((item) => item.id === line.ingredientId);

@@ -57,7 +57,7 @@ export async function getCloudAccount() {
   const { data: business, error: businessError } = await client.from("businesses").select("id, name, subscription_status, grace_until").eq("id", membership.business_id).single();
   if (businessError) throw new Error(businessError.message);
   const graceExpired = business.subscription_status === "grace" && (!business.grace_until || new Date(business.grace_until) <= new Date());
-  return { businessId: business.id, businessName: business.name, status: graceExpired ? "read_only" : business.subscription_status, graceUntil: business.grace_until, role: membership.role };
+  return { businessId: business.id, businessName: business.name === "Lo Cosito" ? "Lo Cositos" : business.name, status: graceExpired ? "read_only" : business.subscription_status, graceUntil: business.grace_until, role: membership.role };
 }
 
 export async function pullCloudState(businessId) {
