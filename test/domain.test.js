@@ -57,7 +57,7 @@ test("convierte un pedido entregado en una venta con costo congelado", () => {
   const product = { id: "torta", yieldQuantity: 1, recipe: [{ ingredientId: "harina", quantity: 500 }] };
   const order = { id: "pedido-1", productId: "torta", quantity: 2, totalPrice: 1200, clientId: "cliente-1", customerName: "Lucía" };
   assert.deepEqual(saleFromOrder(order, product, ingredients, "2026-09-18", "venta-1"), {
-    id: "venta-1", productId: "torta", quantity: 2, unitPrice: 600, unitCostSnapshot: 50, date: "2026-09-18", sourceOrderId: "pedido-1", clientId: "cliente-1", customerName: "Lucía",
+    id: "venta-1", productId: "torta", quantity: 2, unitPrice: 600, unitCostSnapshot: 50, recipeUnits: [], date: "2026-09-18", sourceOrderId: "pedido-1", clientId: "cliente-1", customerName: "Lucía",
   });
 });
 

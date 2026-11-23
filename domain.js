@@ -290,6 +290,41 @@ export function monthlySummary(sales, month) {
     );
 }
 
+export function saleRecipeUnits(product, quantity, products = []) {
+  const totals = new Map();
+  const components = product?.kind === "combo"
+    ? (Array.isArray(product.items) ? product.items : []).map((item) => ({ product: products.find((entry) => entry.id === item?.productId), quantity: item?.quantity }))
+    : [{ product, quantity: 1 }];
+  for (const item of components) {
+    const component = item.product;
+    const units = Number(component?.unitsPerProduct) * Number(item.quantity) * Number(quantity);
+    if (component?.recipeId && Number.isFinite(units) && units > 0) {
+      totals.set(component.recipeId, (totals.get(component.recipeId) || 0) + units);
+    }
+  }
+  return [...totals].map(([recipeId, quantity]) => ({ recipeId, quantity }));
+}
+
+export function recipeAvailability({ productions, sales }) {
+  const balances = new Map();
+  const apply = (entries, sign) => {
+    for (const entry of entries) {
+      const recipeId = entry?.recipeId;
+      const units = Number(entry?.quantity);
+      if (recipeId && Number.isFinite(units) && units > 0) balances.set(recipeId, (balances.get(recipeId) || 0) + sign * units);
+    }
+  };
+  for (const production of productions) {
+    if (production.deletedAt || production.voidedAt) continue;
+    const output = Array.isArray(production.recipeUnits) ? production.recipeUnits : [{ recipeId: production.recipeId, quantity: production.producedQuantity }];
+    apply(output, 1);
+  }
+  for (const sale of sales) {
+    if (!sale.deletedAt && !sale.voidedAt && Array.isArray(sale.recipeUnits)) apply(sale.recipeUnits, -1);
+  }
+  return balances;
+}
+
 export function saleFromOrder(order, product, ingredients, date, id, products = []) {
   if (!order || !product || product.kind === "recipe" || Number(order.quantity) <= 0) throw new Error("El pedido no se puede convertir en venta.");
   return {
@@ -298,6 +333,7 @@ export function saleFromOrder(order, product, ingredients, date, id, products = 
     quantity: Number(order.quantity),
     unitPrice: Number(order.totalPrice) / Number(order.quantity),
     unitCostSnapshot: recipeCost(product, ingredients, products).unitCost,
+    recipeUnits: saleRecipeUnits(product, order.quantity, products),
     date,
     sourceOrderId: order.id,
     clientId: order.clientId || null,

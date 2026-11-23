@@ -1,5 +1,7 @@
+import { saleRecipeUnits } from "./domain.js";
+
 const STORAGE_KEY = "lo-cosito-v1";
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 const BACKUP_APPLICATION = "Lo Cositos";
 const PREVIOUS_APPLICATION = "Lo Cosito";
 
@@ -48,6 +50,21 @@ export function normalizeState(candidate) {
     normalized[collection] = value;
   }
   normalized.products = separateLegacyRecipes(normalized.products);
+  const catalog = normalized.products;
+  const byId = new Map(catalog.map((item) => [item.id, item]));
+  normalized.sales = normalized.sales.map((sale) => {
+    if (Array.isArray(sale.recipeUnits)) return sale;
+    return { ...sale, recipeUnits: saleRecipeUnits(byId.get(sale.productId), sale.quantity, catalog) };
+  });
+  normalized.productions = normalized.productions.map((production) => {
+    if (production.recipeId || Array.isArray(production.recipeUnits)) return production;
+    const product = byId.get(production.productId);
+    if (product?.kind === "combo") {
+      return { ...production, recipeUnits: saleRecipeUnits(product, production.producedQuantity, catalog) };
+    }
+    const recipeId = product?.kind === "recipe" ? product.id : product?.recipeId;
+    return recipeId ? { ...production, recipeId } : production;
+  });
   return normalized;
 }
 

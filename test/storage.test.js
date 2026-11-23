@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { backupSummary, createBackup, emptyState, normalizeState, parseBackup } from "../storage.js";
-import { deleteProductRecord, productionPlan, recipeCost, saleFromOrder } from "../domain.js";
+import { deleteProductRecord, productionPlan, recipeAvailability, recipeCost, saleFromOrder, saleRecipeUnits } from "../domain.js";
 
 const sample = () => ({
   ...structuredClone(emptyState),
@@ -13,7 +13,7 @@ test("crea y restaura un respaldo versionado", () => {
   const backup = createBackup(sample(), "2026-09-18T12:00:00.000Z");
   const restored = parseBackup(JSON.stringify(backup));
   assert.equal(backup.application, "Lo Cositos");
-  assert.equal(restored.schemaVersion, 4);
+  assert.equal(restored.schemaVersion, 5);
   assert.equal(restored.legacy, false);
   assert.equal(restored.data.ingredients[0].name, "Harina");
 });
@@ -51,8 +51,9 @@ test("separa una receta anterior sin alterar pedidos, producciones, ventas ni co
   assert.equal(Object.hasOwn(recipe, "salePrice"), false);
   assert.equal(recipeCost(product, data.ingredients, data.products).unitCost, 12);
   assert.deepEqual(data.orders, old.orders);
-  assert.deepEqual(data.sales, old.sales);
-  assert.deepEqual(data.productions, old.productions);
+  assert.deepEqual(data.sales, [{ ...old.sales[0], recipeUnits: [{ recipeId: recipe.id, quantity: 1 }] }]);
+  assert.deepEqual(data.productions, [{ ...old.productions[0], recipeId: recipe.id }]);
+  assert.equal(recipeAvailability(data).get(recipe.id), 23);
   assert.deepEqual(normalizeState(data), data);
   assert.throws(() => deleteProductRecord(recipe, data.orders, "hoy", null, data.products), /productos que usan/);
 
@@ -65,9 +66,32 @@ test("separa una receta anterior sin alterar pedidos, producciones, ventas ni co
   const sale = saleFromOrder({ id: "tray-order", quantity: 2, totalPrice: 720 }, tray, data.ingredients, "hoy", "sale", catalog);
   assert.equal(sale.quantity, 2);
   assert.equal(sale.unitCostSnapshot, 120);
+  assert.deepEqual(sale.recipeUnits, [{ recipeId: recipe.id, quantity: 20 }]);
   assert.throws(() => saleFromOrder({ quantity: 1 }, recipe, data.ingredients), /no se puede convertir/);
   const combo = { kind: "combo", items: [{ productId: tray.id, quantity: 2 }] };
   assert.equal(recipeCost(combo, data.ingredients, catalog).unitCost, 240);
+});
+
+test("descuenta bandejas y combos por receta y respeta las anulaciones y el historial", () => {
+  const tray = { id: "tray", kind: "product", recipeId: "m", unitsPerProduct: 10 };
+  const bag = { id: "bag", kind: "product", recipeId: "m", unitsPerProduct: 2 };
+  const other = { id: "other", kind: "product", recipeId: "g", unitsPerProduct: 3 };
+  const combo = { id: "pack", kind: "combo", items: [{ productId: "tray", quantity: 1 }, { productId: "bag", quantity: 2 }, { productId: "other", quantity: 1 }] };
+  const products = [tray, bag, other, combo];
+  const productions = [
+    { id: "batch", recipeId: "m", producedQuantity: 24 },
+    { id: "void", recipeId: "m", producedQuantity: 24, voidedAt: "hoy" },
+    { id: "other-batch", recipeId: "g", producedQuantity: 6 },
+    { id: "deleted", recipeId: "m", producedQuantity: 7, deletedAt: "hoy" },
+  ];
+  const sale = { id: "sale", productId: tray.id, quantity: 1, recipeUnits: saleRecipeUnits(tray, 1, products) };
+  assert.equal(recipeAvailability({ productions, sales: [sale] }).get("m"), 14);
+  tray.unitsPerProduct = 6;
+  const data = normalizeState({ products, productions, sales: [sale, { id: "old", productId: combo.id, quantity: 1 }, { ...sale, id: "void-sale", voidedAt: "hoy" }] });
+  assert.deepEqual([...recipeAvailability(data)], [["m", 4], ["g", 3]]);
+  tray.unitsPerProduct = 8;
+  const restored = parseBackup(JSON.stringify(createBackup(data))).data;
+  assert.deepEqual([...recipeAvailability(restored)], [["m", 4], ["g", 3]]);
 });
 
 test("los datos anteriores sin historial de ajustes siguen siendo válidos", () => {

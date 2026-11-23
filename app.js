@@ -1,4 +1,4 @@
-import { correctPurchaseInventory, countedStock, customerKey, deleteIngredientRecord, deleteProductRecord, deleteProductionRecord, ingredientQuantity, ingredientUnit, ingredientUnitCost, ingredientWithManualCost, monthlySummary, pagedOrders, productionCostBreakdown, productDefinition, productionPlan, productionWithHomeSupply, profitOnCostPercent, recipeCost, reverseProductionStock, saleCustomerName as resolveSaleCustomerName, saleFromOrder, toBaseQuantity, unitGroups, updateWeightedAverage } from "./domain.js";
+import { correctPurchaseInventory, countedStock, customerKey, deleteIngredientRecord, deleteProductRecord, deleteProductionRecord, ingredientQuantity, ingredientUnit, ingredientUnitCost, ingredientWithManualCost, monthlySummary, pagedOrders, productionCostBreakdown, productDefinition, productionPlan, productionWithHomeSupply, profitOnCostPercent, recipeAvailability, recipeCost, reverseProductionStock, saleCustomerName as resolveSaleCustomerName, saleFromOrder, saleRecipeUnits, toBaseQuantity, unitGroups, updateWeightedAverage } from "./domain.js";
 import { renderCombos as renderComboPage } from "./combos.js";
 import { exportBusinessPdf, exportIndividualPdf } from "./pdf-export.js";
 import { backupSummary, emptyState, exportState, loadState, normalizeState, parseBackup, saveState, uid } from "./storage.js";
@@ -10,6 +10,7 @@ const money = new Intl.NumberFormat("es-UY", { style: "currency", currency: "UYU
 const preciseMoney = new Intl.NumberFormat("es-UY", { style: "currency", currency: "UYU", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const ingredientMoney = new Intl.NumberFormat("es-UY", { style: "currency", currency: "UYU", minimumFractionDigits: 2, maximumFractionDigits: 6 });
 const decimal = new Intl.NumberFormat("es-UY", { maximumFractionDigits: 2 });
+const stockQuantity = new Intl.NumberFormat("es-UY", { maximumFractionDigits: 4 });
 const titles = { inicio: "Resumen", insumos: "Insumos", compras: "Compras", productos: "Productos y recetas", combos: "Combos", produccion: "Producción", clientes: "Clientes", pedidos: "Pedidos", agenda: "Agenda", ventas: "Ventas", informes: "Informes", datos: "Datos y respaldos", cuenta: "Cuenta" };
 const optionalLabels = { packaging: "Envases", labor: "Mano de obra", gas: "Gas", electricity: "Electricidad", delivery: "Reparto", other: "Otros" };
 const statusLabels = { pendiente: "Pendiente", confirmado: "Confirmado", produccion: "En producción", listo: "Listo", entregado: "Entregado", cancelado: "Cancelado" };
@@ -406,10 +407,14 @@ function renderProducts() {
   const recipes = activeRecipes();
   const products = activeProducts();
   const actions = (item, label) => `<div class="row-actions"><button class="ghost compact-button" data-edit-catalog="${h(item.id)}">Editar</button><button class="danger compact-button" data-delete-product="${h(item.id)}">Eliminar ${label}</button></div>`;
+  const balances = recipeAvailability(state);
   const recipeCards = recipes.map((recipe) => {
+    const available = Math.round((balances.get(recipe.id) || 0) * 10000) / 10000;
+    const stock = stockQuantity.format(Math.abs(available));
+    const units = Math.abs(available) === 1 ? "unidad" : "unidades";
     const cost = recipeCost(recipe, state.ingredients);
     const removed = recipe.recipe?.some((line) => !ingredientById(line.ingredientId) || ingredientById(line.ingredientId).deletedAt);
-    return `<article class="card"><div class="card-title-row"><span class="pill">${h(recipe.category || "Receta")}</span>${actions(recipe, "receta")}</div><h3>${h(recipe.name)}</h3><p>Rinde ${decimal.format(recipe.yieldQuantity)} ${recipe.yieldQuantity === 1 ? "unidad" : "unidades"} por tanda.</p>${removed ? `<p class="warning">Revisá los insumos eliminados antes de producir.</p>` : ""}<div class="catalog-costs"><div><small class="muted">Costo por tanda</small><br><strong>${preciseMoney.format(cost.batchCost)}</strong></div><div><small class="muted">Costo por unidad</small><br><strong>${preciseMoney.format(cost.unitCost)}</strong></div></div></article>`;
+    return `<article class="card"><div class="card-title-row"><span class="pill">${h(recipe.category || "Receta")}</span>${actions(recipe, "receta")}</div><h3>${h(recipe.name)}</h3><p>Rinde ${decimal.format(recipe.yieldQuantity)} ${recipe.yieldQuantity === 1 ? "unidad" : "unidades"} por tanda.</p><p class="recipe-stock ${available < 0 ? "recipe-stock-short" : ""}">${available < 0 ? "Faltan" : "Disponibles"}: <strong>${stock} ${units}</strong></p>${removed ? `<p class="warning">Revisá los insumos eliminados antes de producir.</p>` : ""}<div class="catalog-costs"><div><small class="muted">Costo por tanda</small><br><strong>${preciseMoney.format(cost.batchCost)}</strong></div><div><small class="muted">Costo por unidad</small><br><strong>${preciseMoney.format(cost.unitCost)}</strong></div></div></article>`;
   });
   const productCards = products.map((product) => {
     const recipe = productById(product.recipeId);
@@ -806,12 +811,13 @@ function openSaleDialog() {
     event.preventDefault();
     const data = new FormData(form);
     const product = productById(data.get("productId"));
+    const quantity = Number(data.get("quantity"));
     let cost;
     try { cost = recipeCost(product, state.ingredients, state.products).unitCost; }
     catch (error) { return toast(error.message, 6000); }
     const customerName = String(data.get("customerName") || "").trim();
     const selectedClient = clientById(data.get("clientId"));
-    state.sales.push({ id: uid("sale"), productId: product.id, quantity: Number(data.get("quantity")), unitPrice: Number(data.get("unitPrice")), unitCostSnapshot: cost, date: data.get("date"), customerName, clientId: selectedClient && customerKey(selectedClient.name) === customerKey(customerName) ? selectedClient.id : null });
+    state.sales.push({ id: uid("sale"), productId: product.id, quantity, unitPrice: Number(data.get("unitPrice")), unitCostSnapshot: cost, recipeUnits: saleRecipeUnits(product, quantity, state.products), date: data.get("date"), customerName, clientId: selectedClient && customerKey(selectedClient.name) === customerKey(customerName) ? selectedClient.id : null });
     modal.close();
     persist("Venta registrada");
   });

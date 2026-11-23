@@ -83,7 +83,7 @@ test("protege productos usados por combos y conserva historial al eliminar un co
 test("los combos conservan referencias y costos al migrar respaldos anteriores", () => {
   const state = { ...structuredClone(emptyState), ingredients: ingredients(), products: [...products(), combo()] };
   const backup = createBackup(state);
-  assert.equal(backup.schemaVersion, 4);
+  assert.equal(backup.schemaVersion, 5);
   const restored = parseBackup(JSON.stringify(backup)).data;
   assert.deepEqual(restored.products[2], combo());
   assert.equal(recipeCost(restored.products[2], restored.ingredients, restored.products).unitCost, 88);

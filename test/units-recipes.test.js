@@ -90,7 +90,7 @@ test("el respaldo conserva kg, unidad de visualización, unidades de receta y el
   const data = { ...structuredClone(emptyState), ingredients: [{ id: "h", baseUnit: "g", displayUnit: "kg", stock: 1000, averageCost: 0.052 }, { id: "a", baseUnit: "kg", stock: 1, averageCost: 50 }], products: [deleteProductRecord({ id: "p", recipe: [{ ingredientId: "h", quantity: 0.5, unit: "kg" }] }, [], "hoy")], sales: [{ id: "s", productId: "p", quantity: 1, unitCostSnapshot: 26, unitPrice: 790 }] };
   const restored = parseBackup(JSON.stringify(createBackup(data))).data;
   assert.deepEqual(restored.ingredients, data.ingredients);
-  assert.deepEqual(restored.sales, data.sales);
+  assert.deepEqual(restored.sales, [{ ...data.sales[0], recipeUnits: [{ recipeId: restored.products[0].recipeId, quantity: 1 }] }]);
   const recipe = restored.products.find((item) => item.id === restored.products[0].recipeId);
   assert.equal(recipe.deletedAt, "hoy");
   assert.deepEqual(recipe.recipe, data.products[0].recipe);
